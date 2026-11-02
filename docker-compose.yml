@@ -1,0 +1,23 @@
+# Local development services. Production uses infrastructure/docker/docker-compose.prod.yml.
+name: servebell
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: servebell
+      POSTGRES_PASSWORD: servebell_dev_password
+      POSTGRES_DB: servebell
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U servebell -d servebell"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

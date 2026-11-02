@@ -1,0 +1,1031 @@
+// ServeBell relational model. Conventions:
+// - UUIDv7 primary keys (time-ordered, index friendly), never exposed in QR codes.
+// - All timestamps are timestamptz and written by the server (UTC).
+// - Money is stored as integer minor units (cents) with an explicit currency.
+// - Every restaurant-owned row carries restaurantId so queries can be scoped directly.
+// - Constraints Prisma can't express (exclusion / partial unique) live in migration SQL.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum PlatformRole {
+  USER
+  PLATFORM_ADMIN
+}
+
+enum RestaurantRole {
+  OWNER
+  ADMIN
+  WAITER
+}
+
+enum MemberStatus {
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+enum RestaurantStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+}
+
+enum OnboardingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ClientApp {
+  CUSTOMER
+  RESTAURANT
+  WEB
+}
+
+enum ServiceKind {
+  WAITER
+  UTENSIL
+  WATER
+  BILL
+  CLEANING
+  ASSISTANCE
+  CUSTOM
+}
+
+enum ServiceStatus {
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ServiceEventType {
+  CREATED
+  ACCEPTED
+  STARTED
+  COMPLETED
+  CANCELLED
+  ESCALATED
+  REASSIGNED
+}
+
+enum MessageSenderRole {
+  CUSTOMER
+  STAFF
+  SYSTEM
+}
+
+enum OrderStatus {
+  PENDING
+  ACCEPTED
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum VisitStatus {
+  ACTIVE
+  ENDED
+  EXPIRED
+}
+
+enum QrStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum FloorPlanStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum TableShape {
+  ROUND
+  SQUARE
+  RECTANGLE
+}
+
+enum FloorObjectKind {
+  WALL
+  DOOR
+  WINDOW
+  PILLAR
+  BAR
+  KITCHEN
+  RESTROOM
+  STAGE
+  PLANT
+  ENTRANCE
+  SCREEN
+  TV
+  OTHER
+}
+
+enum MenuKind {
+  FOOD
+  DRINK
+}
+
+enum FilePurpose {
+  RESTAURANT_IMAGE
+  AVATAR
+  MENU_ITEM
+  TABLE_IMAGE
+  UTENSIL
+  FLOOR_REFERENCE
+}
+
+enum FileStatus {
+  PENDING
+  READY
+}
+
+enum PushDeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+  WEB
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+/// Identity (passwords, Google/Apple linking, resets, token refresh) lives in
+/// Firebase Authentication. This row holds the app profile and platform role;
+/// authorization data (memberships) stays in Postgres.
+model User {
+  id              String       @id @default(uuid(7)) @db.Uuid
+  firebaseUid     String       @unique
+  email           String       @unique
+  fullName        String
+  phone           String?
+  avatarFileId    String?      @unique @db.Uuid
+  platformRole    PlatformRole @default(USER)
+  emailVerifiedAt DateTime?    @db.Timestamptz(3)
+  lastLoginAt     DateTime?    @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @db.Timestamptz(3)
+  deletedAt       DateTime?    @db.Timestamptz(3)
+
+  avatar              FileObject?             @relation("UserAvatar", fields: [avatarFileId], references: [id], onDelete: SetNull)
+  customerProfile     CustomerProfile?
+  memberships         RestaurantMember[]
+  invitationsSent     EmployeeInvitation[]    @relation("InvitedBy")
+  onboardingRequests  OwnerOnboardingRequest[] @relation("Applicant")
+  onboardingReviews   OwnerOnboardingRequest[] @relation("Reviewer")
+  visits              RestaurantVisit[]
+  reservations        Reservation[]
+  serviceRequests     ServiceRequest[]        @relation("RequestCustomer")
+  serviceEvents       ServiceRequestEvent[]
+  messages            ServiceMessage[]
+  readCursors         ServiceReadCursor[]
+  orders              Order[]
+  favourites          Favourite[]
+  notifications       Notification[]
+  pushDevices         PushDevice[]
+  uploadedFiles       FileObject[]            @relation("Uploader")
+  auditLogs           AuditLog[]
+
+  @@map("users")
+}
+
+model CustomerProfile {
+  userId        String   @id @db.Uuid
+  preferredCity String?
+  latitude      Float?
+  longitude     Float?
+  onboardedAt   DateTime? @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("customer_profiles")
+}
+
+// ───────────────────────────── Restaurants ─────────────────────────────
+
+model Restaurant {
+  id                       String           @id @default(uuid(7)) @db.Uuid
+  slug                     String           @unique
+  name                     String
+  description              String?
+  phone                    String?
+  email                    String?
+  addressLine              String
+  city                     String
+  district                 String?
+  latitude                 Float?
+  longitude                Float?
+  timezone                 String           @default("Asia/Colombo")
+  currency                 String           @default("LKR") @db.Char(3)
+  status                   RestaurantStatus @default(DRAFT)
+  escalationMinutes        Int              @default(15)
+  visitTtlMinutes          Int              @default(240)
+  ratingAvg                Float?
+  ratingCount              Int              @default(0)
+  coverFileId              String?          @db.Uuid
+  createdAt                DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime         @updatedAt @db.Timestamptz(3)
+  deletedAt                DateTime?        @db.Timestamptz(3)
+
+  cover          FileObject?             @relation("RestaurantCover", fields: [coverFileId], references: [id], onDelete: SetNull)
+  images         RestaurantImage[]
+  openingHours   OpeningHours[]
+  categories     RestaurantCategoryLink[]
+  members        RestaurantMember[]
+  invitations    EmployeeInvitation[]
+  onboarding     OwnerOnboardingRequest?
+  floorPlans     FloorPlan[]
+  tables         RestaurantTable[]
+  qrCodes        TableQrCode[]
+  visits         RestaurantVisit[]
+  reservations   Reservation[]
+  serviceTypes   ServiceType[]
+  serviceRequests ServiceRequest[]
+  messages       ServiceMessage[]
+  menuCategories MenuCategory[]
+  menuItems      MenuItem[]
+  orders         Order[]
+  utensils       Utensil[]
+  amenities      RestaurantAmenity[]
+  favourites     Favourite[]
+  notifications  Notification[]
+  files          FileObject[]
+  auditLogs      AuditLog[]
+
+  @@index([status, city])
+  @@index([latitude, longitude])
+  @@map("restaurants")
+}
+
+model RestaurantImage {
+  id           String @id @default(uuid(7)) @db.Uuid
+  restaurantId String @db.Uuid
+  fileId       String @db.Uuid
+  sortOrder    Int    @default(0)
+  caption      String?
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  file       FileObject @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, fileId])
+  @@index([restaurantId, sortOrder])
+  @@map("restaurant_images")
+}
+
+/// Weekly opening hours in the restaurant's local timezone, minutes after midnight.
+/// closesMinute may exceed 1440 for overnight service.
+model OpeningHours {
+  id           String  @id @default(uuid(7)) @db.Uuid
+  restaurantId String  @db.Uuid
+  dayOfWeek    Int     @db.SmallInt
+  opensMinute  Int     @db.SmallInt
+  closesMinute Int     @db.SmallInt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, dayOfWeek])
+  @@map("opening_hours")
+}
+
+model Category {
+  id    String @id @default(uuid(7)) @db.Uuid
+  slug  String @unique
+  name  String
+  icon  String?
+  sortOrder Int @default(0)
+
+  restaurants RestaurantCategoryLink[]
+
+  @@map("categories")
+}
+
+model RestaurantCategoryLink {
+  restaurantId String @db.Uuid
+  categoryId   String @db.Uuid
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category   Category   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([restaurantId, categoryId])
+  @@index([categoryId])
+  @@map("restaurant_categories")
+}
+
+model RestaurantMember {
+  id           String         @id @default(uuid(7)) @db.Uuid
+  restaurantId String         @db.Uuid
+  userId       String         @db.Uuid
+  role         RestaurantRole
+  status       MemberStatus   @default(ACTIVE)
+  employeeCode String
+  joinedAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @db.Timestamptz(3)
+
+  restaurant        Restaurant              @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acceptedRequests  ServiceRequest[]        @relation("AcceptedBy")
+  completedRequests ServiceRequest[]        @relation("CompletedBy")
+  dismissals        ServiceDismissal[]
+  acceptedOrders    Order[]                 @relation("OrderAcceptedBy")
+  decidedReservations Reservation[]         @relation("ReservationDecidedBy")
+
+  @@unique([restaurantId, userId])
+  @@unique([restaurantId, employeeCode])
+  @@index([userId])
+  @@map("restaurant_members")
+}
+
+model EmployeeInvitation {
+  id           String         @id @default(uuid(7)) @db.Uuid
+  restaurantId String         @db.Uuid
+  email        String
+  role         RestaurantRole
+  codeHash     String         @unique
+  invitedById  String         @db.Uuid
+  expiresAt    DateTime       @db.Timestamptz(3)
+  acceptedAt   DateTime?      @db.Timestamptz(3)
+  revokedAt    DateTime?      @db.Timestamptz(3)
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  invitedBy  User       @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@index([restaurantId, email])
+  @@map("employee_invitations")
+}
+
+/// Verified ownership onboarding: a platform admin approves before an OWNER
+/// membership and an ACTIVE restaurant are created.
+model OwnerOnboardingRequest {
+  id                     String           @id @default(uuid(7)) @db.Uuid
+  applicantId            String           @db.Uuid
+  restaurantName         String
+  addressLine            String
+  city                   String
+  phone                  String
+  businessRegistrationNo String?
+  note                   String?
+  status                 OnboardingStatus @default(PENDING)
+  reviewedById           String?          @db.Uuid
+  reviewedAt             DateTime?        @db.Timestamptz(3)
+  reviewNote             String?
+  restaurantId           String?          @unique @db.Uuid
+  createdAt              DateTime         @default(now()) @db.Timestamptz(3)
+
+  applicant  User        @relation("Applicant", fields: [applicantId], references: [id], onDelete: Cascade)
+  reviewedBy User?       @relation("Reviewer", fields: [reviewedById], references: [id])
+  restaurant Restaurant? @relation(fields: [restaurantId], references: [id])
+
+  @@index([status, createdAt])
+  @@index([applicantId])
+  @@map("owner_onboarding_requests")
+}
+
+// ───────────────────────────── Floor plans & tables ─────────────────────────────
+
+/// One floor/area of a restaurant. Tables and objects reference it; the 2D
+/// blueprint and 3D scene are both rendered from these rows only.
+model FloorPlan {
+  id           String          @id @default(uuid(7)) @db.Uuid
+  restaurantId String          @db.Uuid
+  name         String
+  widthCm      Float
+  depthCm      Float
+  status       FloorPlanStatus @default(DRAFT)
+  version      Int             @default(0)
+  sortOrder    Int             @default(0)
+  referenceFileId String?      @db.Uuid
+  /// Work-in-progress layout (saveDraftSchema). Applied only when staff save for real.
+  draft        Json?
+  draftSavedAt DateTime?       @db.Timestamptz(3)
+  publishedAt  DateTime?       @db.Timestamptz(3)
+  createdAt    DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
+
+  restaurant Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  reference  FileObject?       @relation("FloorReference", fields: [referenceFileId], references: [id], onDelete: SetNull)
+  tables     RestaurantTable[]
+  objects    FloorPlanObject[]
+
+  @@index([restaurantId, status])
+  @@map("floor_plans")
+}
+
+model FloorPlanObject {
+  id          String          @id @default(uuid(7)) @db.Uuid
+  floorPlanId String          @db.Uuid
+  kind        FloorObjectKind
+  label       String?
+  x           Float
+  y           Float
+  width       Float
+  depth       Float
+  height      Float?
+  rotation    Float           @default(0)
+
+  floorPlan FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+
+  @@index([floorPlanId])
+  @@map("floor_plan_objects")
+}
+
+model RestaurantTable {
+  id           String     @id @default(uuid(7)) @db.Uuid
+  restaurantId String     @db.Uuid
+  floorPlanId  String?    @db.Uuid
+  label        String
+  shape        TableShape @default(SQUARE)
+  capacity     Int        @db.SmallInt
+  zone         String?
+  description  String?
+  features     String[]   @default([])
+  x            Float      @default(0)
+  y            Float      @default(0)
+  width        Float      @default(90)
+  depth        Float      @default(90)
+  rotation     Float      @default(0)
+  isReservable Boolean    @default(true)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
+  deletedAt    DateTime?  @db.Timestamptz(3)
+
+  restaurant      Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  floorPlan       FloorPlan?       @relation(fields: [floorPlanId], references: [id], onDelete: SetNull)
+  images          TableImage[]
+  qrCodes         TableQrCode[]
+  visits          RestaurantVisit[]
+  reservations    Reservation[]
+  serviceRequests ServiceRequest[]
+  orders          Order[]
+
+  @@index([restaurantId, deletedAt])
+  @@index([floorPlanId])
+  @@map("restaurant_tables")
+}
+
+model TableImage {
+  id        String @id @default(uuid(7)) @db.Uuid
+  tableId   String @db.Uuid
+  fileId    String @db.Uuid
+  sortOrder Int    @default(0)
+
+  table RestaurantTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  file  FileObject      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([tableId, fileId])
+  @@map("table_images")
+}
+
+/// Printed QR codes carry only `token` (128-bit random, base64url). Regenerating
+/// bumps `version` and revokes the previous code.
+model TableQrCode {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  restaurantId String    @db.Uuid
+  tableId      String    @db.Uuid
+  token        String    @unique
+  version      Int
+  status       QrStatus  @default(ACTIVE)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+
+  restaurant Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table      RestaurantTable   @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  visits     RestaurantVisit[]
+
+  @@unique([tableId, version])
+  @@index([restaurantId])
+  @@map("table_qr_codes")
+}
+
+// ───────────────────────────── Visits & reservations ─────────────────────────────
+
+model RestaurantVisit {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  restaurantId String      @db.Uuid
+  tableId      String      @db.Uuid
+  qrCodeId     String?     @db.Uuid
+  customerId   String      @db.Uuid
+  guestCount   Int?        @db.SmallInt
+  status       VisitStatus @default(ACTIVE)
+  startedAt    DateTime    @default(now()) @db.Timestamptz(3)
+  lastSeenAt   DateTime    @default(now()) @db.Timestamptz(3)
+  expiresAt    DateTime    @db.Timestamptz(3)
+  endedAt      DateTime?   @db.Timestamptz(3)
+
+  restaurant      Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table           RestaurantTable  @relation(fields: [tableId], references: [id])
+  qrCode          TableQrCode?     @relation(fields: [qrCodeId], references: [id], onDelete: SetNull)
+  customer        User             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  serviceRequests ServiceRequest[]
+  orders          Order[]
+
+  @@index([customerId, status])
+  @@index([restaurantId, status])
+  @@index([status, expiresAt])
+  @@map("restaurant_visits")
+}
+
+/// Double booking is prevented by an exclusion constraint on
+/// (tableId, tstzrange(startsAt, endsAt)) for PENDING/CONFIRMED rows (see migration).
+model Reservation {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  restaurantId String            @db.Uuid
+  /// null = "any table" request; staff assign a table when confirming.
+  tableId      String?           @db.Uuid
+  customerId   String            @db.Uuid
+  partySize    Int               @db.SmallInt
+  startsAt     DateTime          @db.Timestamptz(3)
+  endsAt       DateTime          @db.Timestamptz(3)
+  status       ReservationStatus @default(PENDING)
+  note         String?
+  decidedById  String?           @db.Uuid
+  decidedAt    DateTime?         @db.Timestamptz(3)
+  cancelReason String?
+  createdAt    DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime          @updatedAt @db.Timestamptz(3)
+
+  restaurant Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table      RestaurantTable?  @relation(fields: [tableId], references: [id])
+  customer   User              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  decidedBy  RestaurantMember? @relation("ReservationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId, startsAt])
+  @@index([customerId, startsAt])
+  @@index([tableId, startsAt])
+  @@map("reservations")
+}
+
+// ───────────────────────────── Service requests ─────────────────────────────
+
+/// Restaurant-configurable services ("Request a waiter", "Water", "Bill", ...).
+model ServiceType {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  restaurantId String      @db.Uuid
+  kind         ServiceKind
+  name         String
+  description  String?
+  icon         String?
+  utensilId    String?     @db.Uuid
+  isPrimary    Boolean     @default(false)
+  isActive     Boolean     @default(true)
+  sortOrder    Int         @default(0)
+  createdAt    DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime    @updatedAt @db.Timestamptz(3)
+
+  restaurant Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  utensil    Utensil?         @relation(fields: [utensilId], references: [id], onDelete: SetNull)
+  requests   ServiceRequest[]
+
+  @@index([restaurantId, isActive, sortOrder])
+  @@map("service_types")
+}
+
+model ServiceRequest {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  number          Int           @default(autoincrement())
+  restaurantId    String        @db.Uuid
+  tableId         String        @db.Uuid
+  visitId         String        @db.Uuid
+  customerId      String        @db.Uuid
+  serviceTypeId   String        @db.Uuid
+  quantity        Int           @default(1) @db.SmallInt
+  note            String?
+  status          ServiceStatus @default(PENDING)
+  idempotencyKey  String?
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  acceptedAt      DateTime?     @db.Timestamptz(3)
+  startedAt       DateTime?     @db.Timestamptz(3)
+  completedAt     DateTime?     @db.Timestamptz(3)
+  cancelledAt     DateTime?     @db.Timestamptz(3)
+  acceptedById    String?       @db.Uuid
+  completedById   String?       @db.Uuid
+  cancelledByUserId String?     @db.Uuid
+  cancelReason    String?
+  escalationLevel Int           @default(0) @db.SmallInt
+  lastEscalatedAt DateTime?     @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
+
+  restaurant  Restaurant            @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table       RestaurantTable       @relation(fields: [tableId], references: [id])
+  visit       RestaurantVisit       @relation(fields: [visitId], references: [id])
+  customer    User                  @relation("RequestCustomer", fields: [customerId], references: [id])
+  serviceType ServiceType           @relation(fields: [serviceTypeId], references: [id])
+  acceptedBy  RestaurantMember?     @relation("AcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+  completedBy RestaurantMember?     @relation("CompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  events      ServiceRequestEvent[]
+  dismissals  ServiceDismissal[]
+  messages    ServiceMessage[]
+  readCursors ServiceReadCursor[]
+
+  @@unique([number])
+  @@unique([customerId, idempotencyKey])
+  @@index([restaurantId, status, createdAt])
+  @@index([restaurantId, createdAt])
+  @@index([acceptedById, createdAt])
+  @@index([visitId])
+  @@index([status, createdAt])
+  @@map("service_requests")
+}
+
+/// Append-only lifecycle audit trail.
+model ServiceRequestEvent {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  requestId   String           @db.Uuid
+  type        ServiceEventType
+  fromStatus  ServiceStatus?
+  toStatus    ServiceStatus?
+  actorUserId String?          @db.Uuid
+  meta        Json?
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+
+  request ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actor   User?          @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([requestId, createdAt])
+  @@map("service_request_events")
+}
+
+/// "Wait": hides a pending request from one waiter's queue without affecting anyone else.
+model ServiceDismissal {
+  requestId String   @db.Uuid
+  memberId  String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  request ServiceRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  member  RestaurantMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([requestId, memberId])
+  @@map("service_dismissals")
+}
+
+model ServiceMessage {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  requestId    String            @db.Uuid
+  restaurantId String            @db.Uuid
+  senderUserId String?           @db.Uuid
+  senderRole   MessageSenderRole
+  body         String
+  clientMessageId String?
+  createdAt    DateTime          @default(now()) @db.Timestamptz(3)
+
+  request    ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  restaurant Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  sender     User?          @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+
+  @@unique([senderUserId, clientMessageId])
+  @@index([requestId, createdAt])
+  @@index([restaurantId, createdAt])
+  @@map("service_messages")
+}
+
+/// Per-participant read position; cheaper than per-message receipts.
+model ServiceReadCursor {
+  requestId  String   @db.Uuid
+  userId     String   @db.Uuid
+  lastReadAt DateTime @db.Timestamptz(3)
+
+  request ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([requestId, userId])
+  @@map("service_read_cursors")
+}
+
+// ───────────────────────────── Menu & orders ─────────────────────────────
+
+model MenuCategory {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  restaurantId String    @db.Uuid
+  kind         MenuKind
+  name         String
+  sortOrder    Int       @default(0)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt    DateTime? @db.Timestamptz(3)
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  items      MenuItem[]
+
+  @@index([restaurantId, kind, sortOrder])
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  restaurantId String    @db.Uuid
+  categoryId   String    @db.Uuid
+  name         String
+  description  String?
+  priceCents   Int
+  isAvailable  Boolean   @default(true)
+  isActive     Boolean   @default(true)
+  tags         String[]  @default([])
+  prepMinutes  Int?      @db.SmallInt
+  sortOrder    Int       @default(0)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt    DateTime? @db.Timestamptz(3)
+
+  restaurant   Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category     MenuCategory      @relation(fields: [categoryId], references: [id])
+  images       MenuItemImage[]
+  optionGroups MenuOptionGroup[]
+  orderItems   OrderItem[]
+
+  @@index([restaurantId, categoryId, sortOrder])
+  @@map("menu_items")
+}
+
+model MenuItemImage {
+  id        String @id @default(uuid(7)) @db.Uuid
+  itemId    String @db.Uuid
+  fileId    String @db.Uuid
+  sortOrder Int    @default(0)
+
+  item MenuItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  file FileObject @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, fileId])
+  @@map("menu_item_images")
+}
+
+model MenuOptionGroup {
+  id        String  @id @default(uuid(7)) @db.Uuid
+  itemId    String  @db.Uuid
+  name      String
+  minSelect Int     @default(0) @db.SmallInt
+  maxSelect Int     @default(1) @db.SmallInt
+  sortOrder Int     @default(0)
+
+  item    MenuItem     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  options MenuOption[]
+
+  @@index([itemId])
+  @@map("menu_option_groups")
+}
+
+model MenuOption {
+  id              String  @id @default(uuid(7)) @db.Uuid
+  groupId         String  @db.Uuid
+  name            String
+  priceDeltaCents Int     @default(0)
+  isAvailable     Boolean @default(true)
+  sortOrder       Int     @default(0)
+
+  group MenuOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("menu_options")
+}
+
+model Order {
+  id             String      @id @default(uuid(7)) @db.Uuid
+  number         Int         @default(autoincrement())
+  restaurantId   String      @db.Uuid
+  tableId        String      @db.Uuid
+  visitId        String      @db.Uuid
+  customerId     String      @db.Uuid
+  status         OrderStatus @default(PENDING)
+  currency       String      @db.Char(3)
+  subtotalCents  Int
+  totalCents     Int
+  note           String?
+  idempotencyKey String?
+  acceptedById   String?     @db.Uuid
+  cancelReason   String?
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  acceptedAt     DateTime?   @db.Timestamptz(3)
+  preparingAt    DateTime?   @db.Timestamptz(3)
+  readyAt        DateTime?   @db.Timestamptz(3)
+  deliveredAt    DateTime?   @db.Timestamptz(3)
+  cancelledAt    DateTime?   @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+
+  restaurant Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table      RestaurantTable   @relation(fields: [tableId], references: [id])
+  visit      RestaurantVisit   @relation(fields: [visitId], references: [id])
+  customer   User              @relation(fields: [customerId], references: [id])
+  acceptedBy RestaurantMember? @relation("OrderAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+  items      OrderItem[]
+
+  @@unique([number])
+  @@unique([customerId, idempotencyKey])
+  @@index([restaurantId, status, createdAt])
+  @@index([customerId, createdAt])
+  @@map("orders")
+}
+
+/// Name and price are snapshotted so later menu edits never rewrite history.
+model OrderItem {
+  id              String  @id @default(uuid(7)) @db.Uuid
+  orderId         String  @db.Uuid
+  menuItemId      String? @db.Uuid
+  nameSnapshot    String
+  unitPriceCents  Int
+  quantity        Int     @db.SmallInt
+  optionsSnapshot Json?
+  lineTotalCents  Int
+  note            String?
+
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ───────────────────────────── Catalog ─────────────────────────────
+
+model Utensil {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  restaurantId String    @db.Uuid
+  name         String
+  description  String?
+  icon         String?
+  fileId       String?   @db.Uuid
+  isAvailable  Boolean   @default(true)
+  isActive     Boolean   @default(true)
+  sortOrder    Int       @default(0)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+
+  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  file         FileObject?   @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  serviceTypes ServiceType[]
+
+  @@index([restaurantId, isActive])
+  @@map("utensils")
+}
+
+model RestaurantAmenity {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  restaurantId String   @db.Uuid
+  key          String
+  name         String
+  description  String?
+  icon         String?
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, key])
+  @@map("restaurant_amenities")
+}
+
+model Favourite {
+  userId       String   @db.Uuid
+  restaurantId String   @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@id([userId, restaurantId])
+  @@index([restaurantId])
+  @@map("favourites")
+}
+
+// ───────────────────────────── Notifications ─────────────────────────────
+
+/// In-app notification (always created) and the anchor for push deliveries.
+model Notification {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  userId       String    @db.Uuid
+  restaurantId String?   @db.Uuid
+  type         String
+  title        String
+  body         String
+  data         Json?
+  dedupeKey    String?
+  readAt       DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant Restaurant?    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  deliveries PushDelivery[]
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model PushDevice {
+  id            String         @id @default(uuid(7)) @db.Uuid
+  userId        String         @db.Uuid
+  expoPushToken String         @unique
+  platform      DevicePlatform
+  app           ClientApp
+  lastSeenAt    DateTime       @default(now()) @db.Timestamptz(3)
+  disabledAt    DateTime?      @db.Timestamptz(3)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries PushDelivery[]
+
+  @@index([userId, app])
+  @@map("push_devices")
+}
+
+/// Outbox row per (notification, device). Worker sends, then polls receipts;
+/// SENT means Expo accepted the ticket, DELIVERED means the receipt was ok.
+model PushDelivery {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  notificationId String             @db.Uuid
+  deviceId       String             @db.Uuid
+  status         PushDeliveryStatus @default(QUEUED)
+  ticketId       String?
+  attempts       Int                @default(0) @db.SmallInt
+  lastError      String?
+  nextAttemptAt  DateTime           @default(now()) @db.Timestamptz(3)
+  sentAt         DateTime?          @db.Timestamptz(3)
+  receiptAt      DateTime?          @db.Timestamptz(3)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  device       PushDevice   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, deviceId])
+  @@index([status, nextAttemptAt])
+  @@map("push_deliveries")
+}
+
+// ───────────────────────────── Files & audit ─────────────────────────────
+
+model FileObject {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  uploaderId   String?     @db.Uuid
+  restaurantId String?     @db.Uuid
+  purpose      FilePurpose
+  storageKey   String      @unique
+  mimeType     String
+  sizeBytes    Int
+  width        Int?
+  height       Int?
+  status       FileStatus  @default(PENDING)
+  createdAt    DateTime    @default(now()) @db.Timestamptz(3)
+
+  uploader         User?             @relation("Uploader", fields: [uploaderId], references: [id], onDelete: SetNull)
+  restaurant       Restaurant?       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  userAvatar       User?             @relation("UserAvatar")
+  restaurantCovers Restaurant[]      @relation("RestaurantCover")
+  restaurantImages RestaurantImage[]
+  tableImages      TableImage[]
+  menuItemImages   MenuItemImage[]
+  utensils         Utensil[]
+  floorReferences  FloorPlan[]       @relation("FloorReference")
+
+  @@index([restaurantId, purpose])
+  @@index([status, createdAt])
+  @@map("files")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  restaurantId String?  @db.Uuid
+  actorUserId  String?  @db.Uuid
+  action       String
+  entityType   String
+  entityId     String?
+  meta         Json?
+  ip           String?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  restaurant Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  actor      User?       @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

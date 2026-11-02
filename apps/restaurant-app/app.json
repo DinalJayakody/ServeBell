@@ -1,0 +1,68 @@
+{
+  "expo": {
+    "name": "ServeBell Restaurant",
+    "slug": "servebell-restaurant",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "app.servebell.restaurant",
+      "supportsTablet": true,
+      "usesAppleSignIn": true
+    },
+    "android": {
+      "package": "app.servebell.restaurant",
+      "adaptiveIcon": {
+        "backgroundColor": "#0A1428",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      "expo-web-browser",
+      "expo-sharing",
+      "expo-apple-authentication",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "backgroundColor": "#0A1428"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "ServeBell uses the camera to scan QR codes and to photograph your dining room for the floor plan."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ServeBell needs photo access for profile, menu and table photos."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#2F74FF"
+        }
+      ],
+      "expo-asset"
+    ],
+    "scheme": "servebell-restaurant",
+    "backgroundColor": "#0A1428",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

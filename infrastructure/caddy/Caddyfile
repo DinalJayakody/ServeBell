@@ -1,0 +1,43 @@
+# Automatic HTTPS (Let's Encrypt) for SITE_ADDRESS, e.g. "129-146-1-2.sslip.io" or "servebell.example.com".
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# API docs are disabled in production.
+	handle /api/docs* {
+		respond 404
+	}
+
+	handle /api/* {
+		reverse_proxy backend:4000 {
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	handle /socket.io/* {
+		reverse_proxy backend:4000
+	}
+
+	handle {
+		reverse_proxy qr-web:3000
+	}
+
+	request_body {
+		max_size 12MB
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

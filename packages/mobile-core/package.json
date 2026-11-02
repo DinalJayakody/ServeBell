@@ -1,0 +1,50 @@
+{
+  "name": "@servebell/mobile-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared mobile runtime: config, Firebase session, API client wiring, providers. TypeScript source compiled by Metro.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "react-native": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@servebell/api-client": "workspace:*",
+    "@servebell/design-system": "workspace:*",
+    "@servebell/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "@expo-google-fonts/inter": "*",
+    "@hookform/resolvers": "*",
+    "@react-native-async-storage/async-storage": "*",
+    "@tanstack/react-query": "*",
+    "expo-constants": "*",
+    "expo-crypto": "*",
+    "expo-device": "*",
+    "expo-font": "*",
+    "expo-gl": "*",
+    "expo-haptics": "*",
+    "expo-image-picker": "*",
+    "expo-linear-gradient": "*",
+    "expo-notifications": "*",
+    "expo-router": "*",
+    "expo-splash-screen": "*",
+    "firebase": "*",
+    "lucide-react-native": "*",
+    "react": "*",
+    "react-hook-form": "*",
+    "react-native": "*",
+    "react-native-gesture-handler": "*",
+    "react-native-safe-area-context": "*",
+    "react-native-svg": "*",
+    "socket.io-client": "*",
+    "three": "*",
+    "zustand": "*"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "typescript": "~6.0.3",
+    "@types/three": "^0.187.0"
+  }
+}

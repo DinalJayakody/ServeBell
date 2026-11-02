@@ -1,0 +1,66 @@
+/* Mirrors @servebell/design-system tokens so web and mobile look like one product. */
+:root {
+  --bg: #f6f8fc;
+  --surface: #ffffff;
+  --surface-muted: #eef2f8;
+  --border: #e1e7f0;
+  --text: #0d1830;
+  --text-2: #4f5e79;
+  --text-3: #7c8ba6;
+  --primary: #1d5cf2;
+  --primary-soft: #e3ecff;
+  --grad-a: #2f74ff;
+  --grad-b: #1349d6;
+  --success: #0e9f84;
+  --success-soft: #ddf7f1;
+  --danger: #dc2626;
+  --radius: 18px;
+  --shadow: 0 4px 14px rgba(26, 43, 76, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a1428;
+    --surface: #14223f;
+    --surface-muted: #0f1b33;
+    --border: rgba(148, 170, 214, 0.12);
+    --text: #ffffff;
+    --text-2: #9aa8c2;
+    --text-3: #7c8ba6;
+    --primary: #2f74ff;
+    --primary-soft: rgba(47, 116, 255, 0.16);
+    --grad-a: #5c95ff;
+    --grad-b: #1d5cf2;
+    --success: #3dd9ba;
+    --success-soft: rgba(22, 192, 160, 0.16);
+    --danger: #f87171;
+    --shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--text); }
+body { font-family: var(--font-inter), system-ui, -apple-system, sans-serif; font-size: 15px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+.page { max-width: 480px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 16px; min-height: 100dvh; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+.logo { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--grad-a), var(--grad-b)); box-shadow: 0 6px 16px rgba(47, 116, 255, 0.35); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+.hero { padding: 22px; background: linear-gradient(135deg, var(--grad-a), var(--grad-b)); color: #fff; border: 0; }
+.hero p { color: rgba(255, 255, 255, 0.85); }
+h1 { font-size: 28px; line-height: 1.2; letter-spacing: -0.4px; }
+h2 { font-size: 17px; margin-bottom: 8px; }
+.muted { color: var(--text-2); }
+.small { font-size: 13px; }
+.row { display: flex; align-items: center; gap: 10px; }
+.between { justify-content: space-between; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.btn { display: flex; align-items: center; justify-content: center; gap: 8px; height: 52px; border-radius: 999px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.btn-primary { background: linear-gradient(135deg, var(--grad-a), var(--grad-b)); color: #fff; border: 0; box-shadow: 0 6px 16px rgba(47, 116, 255, 0.35); }
+.btn-light { background: #fff; color: #1349d6; border: 0; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface-muted); color: var(--text-2); }
+.pill.ok { background: var(--success-soft); color: var(--success); }
+.pill.primary { background: var(--primary-soft); color: var(--primary); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.hours div { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.hours div:last-child { border-bottom: 0; }
+.today { color: var(--primary); font-weight: 600; }
+.footer { margin-top: auto; text-align: center; color: var(--text-3); font-size: 12px; }

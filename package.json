@@ -1,0 +1,47 @@
+{
+  "name": "servebell",
+  "private": true,
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:backend": "pnpm --filter @servebell/backend dev",
+    "dev:customer": "pnpm --filter @servebell/customer-app start",
+    "dev:restaurant": "pnpm --filter @servebell/restaurant-app start",
+    "dev:web": "pnpm --filter @servebell/qr-web dev",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @servebell/backend prisma:migrate",
+    "db:deploy": "pnpm --filter @servebell/backend prisma:deploy",
+    "db:seed": "pnpm --filter @servebell/backend db:seed",
+    "db:reset": "pnpm --filter @servebell/backend db:reset",
+    "build:packages": "pnpm --filter @servebell/shared build && pnpm --filter @servebell/api-client build",
+    "build": "pnpm build:packages && pnpm --filter @servebell/backend build && pnpm --filter @servebell/qr-web build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "lint": "pnpm -r --if-present lint",
+    "dev:ip": "node infrastructure/scripts/print-lan-url.mjs",
+    "postinstall": "pnpm build:packages",
+    "dev:auth": "firebase emulators:start --only auth --project demo-servebell --import .firebase-emulator --export-on-exit .firebase-emulator",
+    "dev:stack": "concurrently -k -n pkgs,auth,api,web -c gray,yellow,blue,magenta \"pnpm dev:packages\" \"pnpm dev:auth\" \"pnpm dev:backend\" \"pnpm dev:web\"",
+    "ios:customer": "pnpm --filter @servebell/customer-app ios",
+    "ios:restaurant": "pnpm --filter @servebell/restaurant-app ios",
+    "dev:tables": "pnpm --filter @servebell/backend exec tsx scripts/print-tables.ts",
+    "dev:smoke": "pnpm --filter @servebell/backend exec tsx scripts/smoke-flow.ts",
+    "dev:packages": "concurrently -n shared,client \"pnpm --filter @servebell/shared dev\" \"pnpm --filter @servebell/api-client dev\"",
+    "dev:grant": "pnpm --filter @servebell/backend exec tsx scripts/dev-grant.ts",
+    "dev:admin": "pnpm --filter @servebell/backend exec tsx scripts/make-admin.ts"
+  },
+  "pnpm": {
+    "overrides": {
+      "react": "19.3.0",
+      "react-dom": "19.3.0",
+      "@types/react": "~19.3.0"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "firebase-tools": "^15.34.2"
+  }
+}

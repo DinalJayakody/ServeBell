@@ -1,0 +1,109 @@
+# Production stack for a single server (Oracle Cloud Always Free Ampere A1, or any VPS).
+# Caddy terminates HTTPS with automatic Let's Encrypt certificates.
+# Usage (from repo root):
+#   cp infrastructure/docker/.env.prod.example infrastructure/docker/.env.prod   # fill in
+#   docker compose -f infrastructure/docker/docker-compose.prod.yml --env-file infrastructure/docker/.env.prod up -d --build
+name: servebell-prod
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    shm_size: 256mb
+    logging: *logging
+
+  migrate:
+    build: { context: ../.., dockerfile: infrastructure/docker/backend.Dockerfile }
+    image: servebell-backend:latest
+    command: ["npx", "prisma", "migrate", "deploy"]
+    env_file: .env.prod
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+    logging: *logging
+
+  backend:
+    image: servebell-backend:latest
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public&connection_limit=10
+    volumes:
+      - uploads:/app/storage
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    mem_limit: 768m
+    logging: *logging
+
+  qr-web:
+    image: servebell-qr-web:latest
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/qr-web.Dockerfile
+      args:
+        NEXT_PUBLIC_APP_STORE_URL: ${NEXT_PUBLIC_APP_STORE_URL:-}
+        NEXT_PUBLIC_PLAY_STORE_URL: ${NEXT_PUBLIC_PLAY_STORE_URL:-}
+    restart: unless-stopped
+    environment:
+      API_URL: http://backend:4000
+      EXPO_DEV_CUSTOMER_URL: ""
+    depends_on: [backend]
+    mem_limit: 384m
+    logging: *logging
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro,z
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [backend, qr-web]
+    mem_limit: 128m
+    logging: *logging
+
+  backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ../scripts/backup-loop.sh:/backup-loop.sh:ro,z
+      - ${BACKUP_DIR:-../backups}:/backups:z
+    entrypoint: ["/bin/sh", "/backup-loop.sh"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    logging: *logging
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,17 @@
+# React Native/Metro resolves most reliably with a hoisted node_modules layout.
+nodeLinker: hoisted
+autoInstallPeers: false
+strictPeerDependencies: false
+
+packages:
+  - apps/*
+  - backend
+  - packages/*
+
+onlyBuiltDependencies:
+  - "@prisma/engines"
+  - "@swc/core"
+  - esbuild
+  - prisma
+  - sharp
+  - unrs-resolver
