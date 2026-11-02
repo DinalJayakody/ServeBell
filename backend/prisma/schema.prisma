@@ -183,7 +183,10 @@ enum DevicePlatform {
 /// authorization data (memberships) stays in Postgres.
 model User {
   id              String       @id @default(uuid(7)) @db.Uuid
-  firebaseUid     String       @unique
+  /// Supabase Auth user (auth.users.id). The FK to auth.users is added by supabase/migrations only.
+  authUserId      String?      @unique @db.Uuid
+  /// Legacy Firebase identity; kept nullable until every account has moved to Supabase Auth.
+  firebaseUid     String?      @unique
   email           String       @unique
   fullName        String
   phone           String?
@@ -575,7 +578,7 @@ model Reservation {
   updatedAt    DateTime          @updatedAt @db.Timestamptz(3)
 
   restaurant Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  table      RestaurantTable?  @relation(fields: [tableId], references: [id])
+  table      RestaurantTable?  @relation(fields: [tableId], references: [id], onDelete: Restrict)
   customer   User              @relation(fields: [customerId], references: [id], onDelete: Cascade)
   decidedBy  RestaurantMember? @relation("ReservationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
 

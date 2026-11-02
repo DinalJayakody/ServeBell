@@ -52,15 +52,15 @@ Recommended: create both users in Supabase with the Admin API (same email, `emai
 
 ### 3.3 Realtime
 * Replace Socket.IO with **Supabase Realtime Broadcast, private channels**: `restaurant:{id}` (staff), `user:{id}` (one person), `service:{id}` (one request's chat/timeline). Same event names and envelope as today, so `useRealtimeEvent(...)` call sites do not change.
-* Messages are produced **in the database** (`realtime.send` from triggers / the transaction that changes state), so an event exists only if the row change committed. No polling.
+* Messages are sent **by the backend after the transaction commits**, through Supabase's Broadcast REST API with the secret key (refined in Stage 2: keeps today's exact payloads and event names, and an event exists only if the change committed). No polling.
 * Authorisation: RLS policies on `realtime.messages` — `restaurant:{id}` only for active members of that restaurant; `user:{id}` only for that user; `service:{id}` for the requesting customer and staff of the request's restaurant.
 * Reconnection: on `SUBSCRIBED` after a drop the client refetches the affected queries once (TanStack Query invalidation) — no periodic polling.
 
 ### 3.4 Timers → database
 | Today (Nest interval) | Target |
 | --- | --- |
-| Escalation every 30 s | `pg_cron` job `'30 seconds'` calling `servebell.escalate_requests()` (same single `UPDATE … RETURNING`, plus notifications/outbox rows and `realtime.send`) |
-| Visit expiry every 60 s | `pg_cron` job every minute |
+| Escalation every 30 s | `pg_cron` `'30 seconds'` → `pg_net` → `POST /api/v1/internal/jobs/escalate` (existing `EscalationJob.run()`; logic stays in the backend) |
+| Visit expiry every 60 s | `pg_cron` every minute → `POST /api/v1/internal/jobs/expire-visits` |
 | Push outbox every 5 s | trigger on `push_deliveries` insert → `pg_net.http_post` to `POST /api/v1/internal/push/flush` (shared-secret header); `pg_cron` sweep every minute for retries + Expo receipts |
 
 ### 3.5 Files
