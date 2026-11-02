@@ -93,3 +93,44 @@ Local endpoints: API `http://127.0.0.1:54321`, DB `postgresql://postgres:postgre
 | `supabase test db` — 19 pgTAP assertions (RLS on all tables; anon/authenticated denied on users, restaurants, service_requests, role escalation; Realtime topic isolation across restaurants, customers, suspended staff, malformed topics) | **19/19 pass**; a deliberate regression (RLS disabled on `orders`) is detected |
 | Backend integration tests on plain Postgres after the schema change | **80/80 pass** |
 | Prisma schema ↔ migrations drift | none |
+
+## Cloud project (Stage 3, 2026-11-02)
+
+| Item | Value |
+| --- | --- |
+| Plan | Free |
+| Region | ap-northeast-1 (Tokyo) |
+| Project ref | stored in `backend/.env.supabase` (git-ignored) |
+| Postgres | 17.11 |
+| Runtime connection | transaction pooler, port 6543 (`DATABASE_URL`) |
+| Migrations / admin | session pooler, port 5432 (`DIRECT_URL`) |
+
+Credentials live only in `backend/.env.supabase` (mode 600, git-ignored). A database password containing URL-reserved
+characters (`@ : / ? #`) must be percent-encoded in the URLs (`@` → `%40`).
+
+Applied with `supabase db push --db-url "$DIRECT_URL" --include-seed` (no `supabase login` needed).
+
+### Verification on the cloud project
+
+| Check | Result |
+| --- | --- |
+| `supabase test db --db-url "$DIRECT_URL"` (19 pgTAP assertions, run inside a rolled-back transaction) | **19/19 pass** |
+| Schema fingerprint vs. local stack (columns 368, constraints 127, indexes 113, public enums 22, policy, `servebell.*` functions) | identical |
+| Tables without RLS | 0 |
+| REST API with the publishable key on `users`, `restaurants`, `categories` | `42501 permission denied` |
+| Seed categories | 8 |
+| Cron jobs | 4 registered; escalate / expire-visits / push-sweep run and succeed (no-op until Vault secrets exist) |
+| Prisma 7 through the transaction pooler | parallel queries, interactive transactions, rollback: OK |
+| Database size | 14 MB of 500 MB |
+
+`prisma migrate diff --from-config-datasource` cannot introspect the cloud database (P4002: `users.authUserId` → `auth.users`
+is a cross-schema FK by design). Use the fingerprint comparison above, or run the Prisma drift check against plain Postgres.
+
+### Auth settings (dashboard, still to do)
+
+| Setting | Value |
+| --- | --- |
+| Authentication → Sign In / Providers → Email | enabled, **Confirm email on** (verified: `mailer_autoconfirm=false`) |
+| Authentication → URL Configuration → Site URL | `servebell://auth/callback` |
+| Authentication → URL Configuration → Redirect URLs | `servebell://**`, `servebell-restaurant://**`, `exp://**` (Expo Go during development) |
+| Authentication → SMTP | custom SMTP required before real users get emails — Supabase's built-in sender only delivers to project team members and is rate-limited |

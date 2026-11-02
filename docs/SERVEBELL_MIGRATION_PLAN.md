@@ -1,6 +1,6 @@
 # ServeBell — Migration Plan (Oracle + Firebase → Supabase + Vercel + R2 + EAS)
 
-Status: **proposal, Stage 1 (audit) complete. Nothing has been migrated yet.**
+Status: **Stages 1–3 complete** (audit, database design, Supabase project created and migrated). Apps and backend still run on Oracle + Firebase.
 Companion documents: `SERVEBELL_CURRENT_ARCHITECTURE.md`, `SERVEBELL_FEATURE_INVENTORY.md`.
 
 ## 1. Facts that change the brief
@@ -92,8 +92,8 @@ Keep the existing outbox + `expo-server-sdk`. Add `eas.json`, EAS project ids, A
 | # | Stage | Work | Needs from you |
 | --- | --- | --- | --- |
 | 1 | Audit | **Done** — 3 documents | — |
-| 2 | Database architecture | Map Prisma schema to Supabase (extensions `btree_gist`, `pg_cron`, `pg_net`), `supabase/migrations/` generated from Prisma + SQL for RLS/realtime/cron, `supabase/seed.sql`, `docs/SUPABASE_DATABASE.md` | — |
-| 3 | Supabase project | Create project (region: **ap-south-1 Mumbai** closest to Sri Lanka), enable extensions, apply migrations, auth settings (email confirm, redirect URLs, SMTP) | Create the project in the dashboard (free) and give me the project ref, publishable key, secret key, DB password via local `.env` files (never in chat) — or run `supabase login` yourself so I can link |
+| 2 | Database architecture | **Done** — Map Prisma schema to Supabase (extensions `btree_gist`, `pg_cron`, `pg_net`), `supabase/migrations/` generated from Prisma + SQL for RLS/realtime/cron, `supabase/seed.sql`, `docs/SUPABASE_DATABASE.md` | — |
+| 3 | Supabase project | **Done (dashboard Auth settings pending, see SUPABASE_DATABASE.md)** — Create project (created in **ap-northeast-1 Tokyo**), enable extensions, apply migrations, auth settings (email confirm, redirect URLs, SMTP) | Create the project in the dashboard (free) and give me the project ref, publishable key, secret key, DB password via local `.env` files (never in chat) — or run `supabase login` yourself so I can link |
 | 4 | Auth migration | Server JWT verifier, mobile session rewrite, deep links, 2-user migration | Approve D2; you confirm the reset emails arrive |
 | 5 | Backend → Vercel | Serverless entry (`api/index.ts` wrapping Nest), `vercel.json`, pooler URLs, `/api/health` | D1; Vercel account + GitHub repo (D3) |
 | 6 | Realtime | Triggers, `realtime.send`, RLS on `realtime.messages`, client channel layer | — |
@@ -113,9 +113,9 @@ Keep the existing outbox + `expo-server-sdk`. Add `eas.json`, EAS project ids, A
 | --- | --- |
 | Vercel Hobby terms (commercial) | D1; build is portable to Pro/Oracle without code changes. |
 | Cold starts (Nest + Prisma) on serverless | Fluid compute instance reuse; lazy module init; keep bundle small; measure p95 in staging. |
-| Pooler + Prisma prepared statements | Use transaction pooler URL with `?pgbouncer=true` for runtime, session/direct URL for migrations; verify in Stage 3. |
+| Pooler + Prisma prepared statements | **Verified in Stage 3:** Prisma 7 + `@prisma/adapter-pg` works through the transaction pooler (6543) with no extra flags — 40 parallel queries, interactive transactions, rollback, statement reuse. Session pooler (5432) is used for migrations. |
 | Realtime free quota (200 connections) | One channel set per app session; unsubscribe on background; document the ceiling. |
-| pg_cron seconds granularity / pg_net availability | Verify on the created project in Stage 3; fall back to 1-minute escalation if needed (still within the 15-minute SLA). |
+| pg_cron seconds granularity / pg_net availability | **Verified in Stage 3:** pg_cron 1.6.4 accepts `30 seconds`, pg_net 0.20.4 installed; jobs run and succeed (no-op until Vault secrets exist). |
 | Losing work during migration | Baseline Git commit + tag; Oracle untouched; Firebase project kept until both users log in on Supabase; nightly Oracle backups continue. |
 | Secrets | `.env*` and admin keys git-ignored (verified); move the Firebase admin key out of `docs/deployment/` and rotate it after cut-over. |
 | Apple bundle ids already registered elsewhere | Check in App Store Connect in Stage 14; changing them would be a decision for you. |
