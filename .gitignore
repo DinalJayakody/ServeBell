@@ -28,3 +28,6 @@ backend/storage/
 *firebase-adminsdk*.json
 *service-account*.json
 *serviceAccount*.json
+
+# Vercel CLI link (per machine)
+.vercel

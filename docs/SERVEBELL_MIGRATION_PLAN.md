@@ -1,6 +1,6 @@
 # ServeBell — Migration Plan (Oracle + Firebase → Supabase + Vercel + R2 + EAS)
 
-Status: **Stages 1–4 complete** (audit, database, Supabase project, Supabase Auth in code). Production (Oracle + Firebase) is unchanged until the Vercel cut-over.
+Status: **Stages 1–5 complete** (audit, database, Supabase project, Supabase Auth, API live on Vercel at https://servebell-api.vercel.app). The apps' builds still point at Oracle + Firebase until the cut-over.
 Companion documents: `SERVEBELL_CURRENT_ARCHITECTURE.md`, `SERVEBELL_FEATURE_INVENTORY.md`.
 
 ## 1. Facts that change the brief
@@ -95,7 +95,7 @@ Keep the existing outbox + `expo-server-sdk`. Add `eas.json`, EAS project ids, A
 | 2 | Database architecture | **Done** — Map Prisma schema to Supabase (extensions `btree_gist`, `pg_cron`, `pg_net`), `supabase/migrations/` generated from Prisma + SQL for RLS/realtime/cron, `supabase/seed.sql`, `docs/SUPABASE_DATABASE.md` | — |
 | 3 | Supabase project | **Done (dashboard Auth settings pending, see SUPABASE_DATABASE.md)** — Create project (created in **ap-northeast-1 Tokyo**), enable extensions, apply migrations, auth settings (email confirm, redirect URLs, SMTP) | Create the project in the dashboard (free) and give me the project ref, publishable key, secret key, DB password via local `.env` files (never in chat) — or run `supabase login` yourself so I can link |
 | 4 | Auth migration | **Done** (see SUPABASE_AUTH.md; only dinaljayakody25@gmail.com migrates — linked automatically on first confirmed sign-in) — Server JWT verifier, mobile session rewrite, deep links, 2-user migration | Approve D2; you confirm the reset emails arrive |
-| 5 | Backend → Vercel | Serverless entry (`api/index.ts` wrapping Nest), `vercel.json`, pooler URLs, `/api/health` | D1; Vercel account + GitHub repo (D3) |
+| 5 | Backend → Vercel | **Done** (docs/deployment/vercel.md; Vault secrets for pg_cron pending — set by you) — Serverless entry (`api/index.ts` wrapping Nest), `vercel.json`, pooler URLs, `/api/health` | D1; Vercel account + GitHub repo (D3) |
 | 6 | Realtime | Triggers, `realtime.send`, RLS on `realtime.messages`, client channel layer | — |
 | 7 | Push | Outbox flush endpoint, pg_net trigger, EAS project ids | Expo account login (done: `dinal25`) |
 | 8 | R2 | Bucket, CORS, public URL, keys | Cloudflare account; create R2 bucket + API token (free tier: 10 GB) |

@@ -1,0 +1,26 @@
+# Upload only what the API build needs (allow-list). Secrets and apps' sources never leave the Mac.
+/*
+!/backend
+!/packages
+!/apps
+!/package.json
+!/pnpm-lock.yaml
+!/pnpm-workspace.yaml
+!/.nvmrc
+
+# Apps: only their package.json, so the pnpm lockfile still matches the workspace.
+/apps/*/*
+!/apps/*/package.json
+
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+**/.DS_Store
+/backend/uploads
+/backend/test
+/backend/coverage
+/backend/scripts
+/backend/prisma/seed.ts
+/backend/prisma/seed-assets

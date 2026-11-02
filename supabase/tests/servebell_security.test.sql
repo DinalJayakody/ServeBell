@@ -1,7 +1,7 @@
 -- Run with: supabase test db
 -- Database-level security: RLS everywhere, no client table access, Realtime channel isolation.
 BEGIN;
-SELECT plan(19);
+SELECT plan(22);
 
 -- ── Fixtures (as the database owner) ──
 INSERT INTO auth.users (id, email, aud, role) VALUES
@@ -74,6 +74,11 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims', '{"sub":"a0000000-0000-4000-8000-00000000000a","role":"authenticated"}', true);
 SELECT ok(NOT servebell.can_receive('restaurant:20000000-0000-4000-8000-000000000001'), 'suspended staff loses the restaurant channel');
 RESET ROLE;
+
+-- On-demand jobs: idle database → no API calls; expiry runs in SQL.
+SELECT is(servebell.escalation_due(), false, 'no escalation due on an idle database');
+SELECT is(servebell.push_due(), false, 'no push work due on an idle database');
+SELECT ok((SELECT command FROM cron.job WHERE jobname = 'servebell-expire-visits') NOT LIKE '%tick%', 'visit expiry runs in SQL without calling the API');
 
 SELECT * FROM finish();
 ROLLBACK;

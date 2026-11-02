@@ -8,6 +8,6 @@ import { PushWorker } from './push.worker.js';
 @Module({
   controllers: [DevicesController, NotificationsController],
   providers: [NotificationsService, PushWorker],
-  exports: [NotificationsService],
+  exports: [NotificationsService, PushWorker],
 })
 export class NotificationsModule {}

@@ -6,7 +6,7 @@ import { AppConfig } from '../../config/config.module.js';
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleDestroy {
   constructor(config: AppConfig) {
-    super({ adapter: new PrismaPg({ connectionString: config.env.DATABASE_URL, max: 10 }) });
+    super({ adapter: new PrismaPg({ connectionString: config.env.DATABASE_URL, max: config.env.DATABASE_POOL_MAX }) });
   }
 
   async onModuleDestroy() {

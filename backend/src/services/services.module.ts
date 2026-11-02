@@ -9,5 +9,6 @@ import { VisitsModule } from '../visits/visits.module.js';
   imports: [VisitsModule],
   controllers: [ServicesController, StaffServicesController],
   providers: [ServiceRequestsService, ServiceMessagesService, EscalationJob],
+  exports: [EscalationJob],
 })
 export class ServicesModule {}

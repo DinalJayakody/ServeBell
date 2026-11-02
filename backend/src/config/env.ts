@@ -12,6 +12,8 @@ const envSchema = z
     CORS_ORIGINS: csv,
     PUBLIC_WEB_URL: z.url(),
     DATABASE_URL: z.string().min(1),
+    /** Connections per API instance. Keep small on serverless (Supabase transaction pooler). */
+    DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
     /** Supabase project URL (https://<ref>.supabase.co, or http://127.0.0.1:54321 for the local stack). */
     SUPABASE_URL: z.url(),
     /** Server-only secret key (sb_secret_…). Never shipped to the apps. */
@@ -29,11 +31,22 @@ const envSchema = z
     ANTHROPIC_API_KEY: z.string().default(''),
     ANTHROPIC_MODEL: z.string().default('claude-opus-5-5'),
     SEED_DEMO_ACCOUNTS: z.stringbool().default(false),
+    /**
+     * In-process timers for escalation, visit expiry and the push outbox. A long-running
+     * server keeps them on; serverless (Vercel) turns them off and pg_cron calls
+     * POST /api/v1/internal/jobs/:job with CRON_SECRET instead.
+     */
+    RUN_INTERVAL_JOBS: z.stringbool().default(true),
+    /** Shared secret for the internal job endpoints (header x-servebell-cron). Empty = endpoints disabled. */
+    CRON_SECRET: z.string().default(''),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
     if (env.TOKEN_HASH_SECRET.startsWith('change-me')) {
       ctx.addIssue({ code: 'custom', path: ['TOKEN_HASH_SECRET'], message: 'placeholder secret in production' });
+    }
+    if (!env.RUN_INTERVAL_JOBS && env.CRON_SECRET.length < 32) {
+      ctx.addIssue({ code: 'custom', path: ['CRON_SECRET'], message: 'required (32+ chars) when RUN_INTERVAL_JOBS=false, or scheduled work never runs' });
     }
     if (!env.SUPABASE_URL.startsWith('https://')) {
       ctx.addIssue({ code: 'custom', path: ['SUPABASE_URL'], message: 'must be the https project URL in production' });

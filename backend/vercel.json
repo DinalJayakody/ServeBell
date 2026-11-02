@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "cd .. && pnpm install --frozen-lockfile --production=false --filter @servebell/backend...",
+  "buildCommand": "cd .. && pnpm --filter @servebell/shared build && pnpm --filter @servebell/backend build:vercel",
+  "outputDirectory": "public",
+  "regions": ["hnd1"],
+  "functions": {
+    "api/index.js": { "maxDuration": 30, "includeFiles": "dist/serverless.bundle.mjs" }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+}

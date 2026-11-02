@@ -86,6 +86,7 @@ export class VisitsService {
   async expireStale() {
     const res = await this.prisma.restaurantVisit.updateMany({ where: { status: 'ACTIVE', expiresAt: { lte: new Date() } }, data: { status: 'EXPIRED', endedAt: new Date() } });
     if (res.count) this.logger.log(`Expired ${res.count} visit(s)`);
+    return res.count;
   }
 }
 
