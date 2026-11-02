@@ -4,8 +4,7 @@ import { Throttle } from '@nestjs/throttler';
 import { createInvitationSchema, Permission, redeemInvitationSchema, type CreateInvitationInput, type RedeemInvitationInput } from '@servebell/shared';
 import { InvitationsService } from './invitations.service.js';
 import { ZodPipe } from '../common/pipes/zod-validation.pipe.js';
-import { CurrentMembership, CurrentUser, FirebaseIdentityParam, RequirePermission } from '../common/decorators/auth.decorators.js';
-import type { FirebaseIdentity } from '../auth/firebase-token.verifier.js';
+import { CurrentMembership, CurrentUser, RequirePermission } from '../common/decorators/auth.decorators.js';
 import { Errors } from '../common/errors.js';
 import type { AuthUser, RestaurantMembershipContext } from '../common/request-context.js';
 import { PrismaService } from '../common/prisma/prisma.service.js';
@@ -50,9 +49,9 @@ export class EmployeesController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('invitations/redeem')
   @ApiOperation({ summary: 'Join a restaurant with an invitation code (authenticated; code bound to email)' })
-  async redeem(@CurrentUser() user: AuthUser, @FirebaseIdentityParam() fb: FirebaseIdentity, @Body(new ZodPipe(redeemInvitationSchema)) body: RedeemInvitationInput) {
+  async redeem(@CurrentUser() user: AuthUser, @Body(new ZodPipe(redeemInvitationSchema)) body: RedeemInvitationInput) {
     // The code is bound to an email, so the email must be proven to belong to this person.
-    if (!fb.emailVerified) throw Errors.emailNotVerified();
+    if (!user.emailVerified) throw Errors.emailNotVerified();
     const { email } = await this.prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { email: true } });
     if (body.phone) await this.auth.updateProfile(user.id, { phone: body.phone });
     const result = await this.invitations.redeem({ id: user.id, email }, body.invitationCode);

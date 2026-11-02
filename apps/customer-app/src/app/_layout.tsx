@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { RealtimeEvent, type RealtimeEnvelope, type ServiceMessageView, type ServiceRequestView } from '@servebell/shared';
-import { AppProviders, isFirebaseConfigured, showLocalAlert, startSession, useNotifications, useRealtime, useRealtimeEvent, useSession } from '@servebell/mobile-core';
+import { AppProviders, isAuthConfigured, showLocalAlert, startSession, useNotifications, useRealtime, useRealtimeEvent, useSession } from '@servebell/mobile-core';
 import { useTheme } from '@servebell/design-system';
 
 /** Live updates + alerts for the signed-in customer. */
@@ -52,7 +52,7 @@ function RootStack() {
 }
 
 export default function RootLayout() {
-  useEffect(() => (isFirebaseConfigured() ? startSession('CUSTOMER') : undefined), []);
+  useEffect(() => (isAuthConfigured() ? startSession('CUSTOMER') : undefined), []);
   return (
     <AppProviders>
       <RootStack />

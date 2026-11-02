@@ -4,7 +4,7 @@ import type { ServerOptions } from 'socket.io';
 
 /**
  * Restricts browser origins for Socket.IO to the configured web origins.
- * Native apps send no Origin header and are authenticated by Firebase token.
+ * Native apps send no Origin header and are authenticated by their Supabase access token.
  */
 export class ConfiguredIoAdapter extends IoAdapter {
   constructor(app: INestApplicationContext, private readonly origins: string[]) {

@@ -21,7 +21,7 @@ export class ApiError extends Error {
 export interface ApiClientOptions {
   /** e.g. http://192.168.1.5:4000 — never localhost when testing on a phone. */
   baseUrl: string;
-  /** Returns the current Firebase ID token; `forceRefresh` asks Firebase for a fresh one. */
+  /** Returns the current Supabase access token; `forceRefresh` asks Supabase Auth for a fresh one. */
   getIdToken: (forceRefresh?: boolean) => Promise<string | null>;
   /** Called when the server rejects the session even after a token refresh. */
   onUnauthenticated?: () => void;

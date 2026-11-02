@@ -1,19 +1,18 @@
 /**
  * Development seed. Idempotent: safe to run repeatedly.
- * Never runs in production. Demo Firebase accounts are only created when
- * SEED_DEMO_ACCOUNTS=true and Firebase admin access (service account or Auth emulator) is configured.
+ * Never runs in production. Demo accounts are only created when SEED_DEMO_ACCOUNTS=true
+ * and SUPABASE_URL points at the LOCAL Supabase stack (their password is public).
  */
 import 'dotenv/config';
 import { randomBytes } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { cert, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
 import { PrismaClient, type RestaurantRole } from '../src/generated/prisma/client.js';
 import { readFile } from 'node:fs/promises';
 import { DEFAULT_SERVICE_TYPES } from '../src/onboarding/default-services.js';
 import { createStorage } from '../src/uploads/storage.js';
 import { processImage } from '../src/uploads/image-processing.js';
 import type { FilePurpose } from '@servebell/shared';
+import { ensureAuthUser, isLocalSupabase } from '../scripts/supabase-auth.js';
 
 if (process.env.NODE_ENV === 'production') {
   console.error('Refusing to seed a production database.');
@@ -140,26 +139,17 @@ const OBJECTS = [
 
 async function ensureDemoUsers(restaurantId: string) {
   const enabled = process.env.SEED_DEMO_ACCOUNTS === 'true';
-  const hasAdmin = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 || process.env.FIREBASE_AUTH_EMULATOR_HOST);
-  if (!enabled || !hasAdmin) {
-    console.log(`• Demo accounts skipped (${!enabled ? 'SEED_DEMO_ACCOUNTS is not true' : 'no Firebase service account or Auth emulator configured'}).`);
+  if (!enabled || !isLocalSupabase()) {
+    console.log(`• Demo accounts skipped (${!enabled ? 'SEED_DEMO_ACCOUNTS is not true' : 'SUPABASE_URL is not the local Supabase stack'}).`);
     return;
   }
-  const sa = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
-  const app = initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    ...(sa ? { credential: cert(JSON.parse(Buffer.from(sa, 'base64').toString('utf8'))) } : {}),
-  });
-  const auth = getAuth(app);
   for (const u of DEMO_USERS) {
-    const fb = await auth.getUserByEmail(u.email).catch(() =>
-      auth.createUser({ email: u.email, password: DEMO_PASSWORD, displayName: u.fullName, emailVerified: true }),
-    );
+    const authUserId = await ensureAuthUser({ email: u.email, password: DEMO_PASSWORD, fullName: u.fullName });
     const user = await prisma.user.upsert({
       where: { email: u.email },
-      update: { firebaseUid: fb.uid, platformRole: u.platformRole ?? 'USER' },
+      update: { authUserId, platformRole: u.platformRole ?? 'USER' },
       create: {
-        firebaseUid: fb.uid, email: u.email, fullName: u.fullName, phone: u.phone, emailVerifiedAt: new Date(),
+        authUserId, email: u.email, fullName: u.fullName, phone: u.phone, emailVerifiedAt: new Date(),
         platformRole: u.platformRole ?? 'USER', customerProfile: u.role ? undefined : { create: {} },
       },
     });

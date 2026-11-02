@@ -4,7 +4,7 @@ import { createApiClient, ApiError } from './index.js';
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 describe('api client', () => {
-  it('sends the Firebase token and parses JSON', async () => {
+  it('sends the access token and parses JSON', async () => {
     const fetchImpl = vi.fn(async () => json(200, { id: 'u1' }));
     const api = createApiClient({ baseUrl: 'http://api.test', getIdToken: async () => 'tok', fetchImpl });
     await expect(api.auth.me()).resolves.toEqual({ id: 'u1' });

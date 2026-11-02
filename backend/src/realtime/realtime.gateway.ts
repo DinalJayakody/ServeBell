@@ -3,7 +3,7 @@ import { ConnectedSocket, MessageBody, type OnGatewayConnection, type OnGatewayI
 import type { Server, Socket } from 'socket.io';
 import { z } from 'zod';
 import { hasPermission, Permission, RealtimeCommand, rooms } from '@servebell/shared';
-import { IdTokenVerifier } from '../auth/firebase-token.verifier.js';
+import { IdTokenVerifier } from '../auth/token-verifier.js';
 import { PrismaService } from '../common/prisma/prisma.service.js';
 import { RealtimeService } from './realtime.service.js';
 
@@ -15,7 +15,7 @@ const idPayload = z.object({ id: z.uuid() });
 type Ack = { ok: true } | { ok: false; error: string };
 
 /**
- * Authenticated with the Firebase ID token in the handshake (`auth: { token }`).
+ * Authenticated with the Supabase access token in the handshake (`auth: { token }`).
  * Every room join is authorised against the database.
  */
 @WebSocketGateway({ pingInterval: 25_000, pingTimeout: 20_000 })
@@ -35,7 +35,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
       if (typeof token !== 'string') return next(new Error('UNAUTHENTICATED'));
       this.verifier
         .verify(token)
-        .then((identity) => this.prisma.user.findUnique({ where: { firebaseUid: identity.uid }, select: { id: true, deletedAt: true } }))
+        .then((identity) => this.prisma.user.findUnique({ where: { authUserId: identity.uid }, select: { id: true, deletedAt: true } }))
         .then((user) => {
           if (!user || user.deletedAt) return next(new Error('UNAUTHENTICATED'));
           (socket.data as SocketData).userId = user.id;

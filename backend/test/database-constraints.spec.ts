@@ -9,7 +9,7 @@ describe('Database-level guarantees', () => {
     const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const restaurant = await prisma.restaurant.create({ data: { slug: `db-${tag}`, name: 'DB Test', addressLine: 'x', city: 'Colombo' } });
     const table = await prisma.restaurantTable.create({ data: { restaurantId: restaurant.id, label: 'T1', capacity: 4 } });
-    const customer = await prisma.user.create({ data: { firebaseUid: `db-${tag}`, email: `db-${tag}@test.dev`, fullName: 'C' } });
+    const customer = await prisma.user.create({ data: { authUserId: crypto.randomUUID(), email: `db-${tag}@test.dev`, fullName: 'C' } });
     return { restaurant, table, customer };
   }
 

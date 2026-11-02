@@ -6,7 +6,7 @@
  *   → customer reserves (specific table + any table) → staff confirm / assign → customer scans a
  *   table QR → service requests in every state → chat → order.
  *
- *   API_URL=https://<host> FIREBASE_WEB_API_KEY=... DEMO_PASSWORD=... \
+ *   API_URL=https://<host> SUPABASE_URL=... SUPABASE_SECRET_KEY=... DEMO_PASSWORD=... \
  *   [ADMIN_GRANT_CMD='… make-admin … {email}' ADMIN_REVOKE_CMD='… revoke-admin … {email}'  (local only;
  *    without them the script waits until a platform admin approves the two applications in the app)] \
  *   pnpm --filter @servebell/backend exec tsx scripts/demo-scenario.ts dinaljayakody25@gmail.com
@@ -16,37 +16,28 @@
 import 'dotenv/config';
 import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { cert, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
+import { ensureAuthUser, passwordSignIn } from './supabase-auth.js';
 
 const base = process.argv[2]?.trim().toLowerCase();
 const API = `${process.env.API_URL!.replace(/\/$/, '')}/api/v1`;
-const KEY = process.env.FIREBASE_WEB_API_KEY!;
 const PASSWORD = process.env.DEMO_PASSWORD!;
-if (!base?.includes('@') || !process.env.API_URL || !KEY || !PASSWORD) {
-  console.error('Usage: API_URL=… FIREBASE_WEB_API_KEY=… DEMO_PASSWORD=… tsx scripts/demo-scenario.ts you@gmail.com');
+if (!base?.includes('@') || !process.env.API_URL || !process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY || !PASSWORD) {
+  console.error('Usage: API_URL=… SUPABASE_URL=… SUPABASE_SECRET_KEY=… DEMO_PASSWORD=… tsx scripts/demo-scenario.ts you@gmail.com');
   process.exit(1);
 }
 const [local, domain] = base.split('@') as [string, string];
 const alias = (tag: string) => `${local}+${tag}@${domain}`;
 
-initializeApp({ credential: cert(JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64!, 'base64').toString('utf8'))) });
-const fb = getAuth();
 
 type U = { email: string; name: string; token: string; id: string };
 const log = (m: string) => console.log(`• ${m}`);
 
-async function idToken(email: string) {
-  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${KEY}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD, returnSecureToken: true }) });
-  const j = (await r.json()) as { idToken?: string; error?: { message: string } };
-  if (!j.idToken) throw new Error(`sign-in ${email}: ${j.error?.message}`);
-  return j.idToken;
-}
+const idToken = (email: string) => passwordSignIn(email, PASSWORD);
 
 async function call<T = any>(u: U | null, method: string, path: string, body?: unknown, ok = [200, 201, 204], retried = false): Promise<T> {
   const res = await fetch(`${API}${path}`, { method, headers: { 'content-type': 'application/json', ...(u ? { authorization: `Bearer ${u.token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   if (res.status === 401 && u && !retried) {
-    // Firebase ID tokens last an hour; sign in again and retry once.
+    // Access tokens last an hour; sign in again and retry once.
     u.token = await idToken(u.email);
     return call<T>(u, method, path, body, ok, true);
   }
@@ -58,12 +49,7 @@ async function call<T = any>(u: U | null, method: string, path: string, body?: u
 
 async function account(tag: string, name: string, app: 'CUSTOMER' | 'RESTAURANT'): Promise<U> {
   const email = alias(tag);
-  try {
-    const existing = await fb.getUserByEmail(email);
-    await fb.updateUser(existing.uid, { password: PASSWORD, emailVerified: true, displayName: name });
-  } catch {
-    await fb.createUser({ email, password: PASSWORD, emailVerified: true, displayName: name });
-  }
+  await ensureAuthUser({ email, password: PASSWORD, fullName: name });
   const u = { email, name, token: await idToken(email), id: '' };
   u.id = (await call<{ id: string }>(u, 'POST', '/auth/sync', { app, fullName: name })).id;
   log(`account ${email}`);

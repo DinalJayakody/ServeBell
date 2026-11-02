@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, View } from 'react-native';
 import { MailCheck } from 'lucide-react-native';
 import { Button, Card, IconBadge, Text, useTheme } from '@servebell/design-system';
-import { authErrorMessage } from './firebase';
+import { authErrorMessage } from './supabase';
 import { session, useSession } from './session';
 
 /** Shown until the signed-in user's email is verified. */

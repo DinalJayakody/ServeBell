@@ -97,7 +97,8 @@ describe('Owner onboarding, invitations, roles and restaurant isolation', () => 
     expect(redeem.body.code).toBe('EMAIL_NOT_VERIFIED');
     const apply = await api(app, token).post('/onboarding/owner-applications', { restaurantName: 'Fake Place', addressLine: '1 Road', city: 'Colombo', phone: '0112345678' });
     expect(apply.body.code).toBe('EMAIL_NOT_VERIFIED');
-    // Once verified (same Firebase user), the same code works.
+    // Once confirmed (same Supabase user, re-synced as the app does), the same code works.
+    expect((await api(app, u.token).post('/auth/sync', { app: 'RESTAURANT' })).body.emailVerified).toBe(true);
     expect((await api(app, u.token).post('/invitations/redeem', { invitationCode: inv.body.code })).status).toBe(201);
   });
 

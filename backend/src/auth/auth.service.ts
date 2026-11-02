@@ -3,36 +3,45 @@ import { ErrorCode, type SessionUser, type SyncProfileInput, type UpdateProfileI
 import { PrismaService } from '../common/prisma/prisma.service.js';
 import { AppError, Errors } from '../common/errors.js';
 import { AuditService } from '../audit/audit.service.js';
-import type { FirebaseIdentity } from './firebase-token.verifier.js';
+import { IdTokenVerifier, type AuthIdentity } from './token-verifier.js';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly verifier: IdTokenVerifier,
   ) {}
 
   /**
    * Idempotent: creates the local profile on first sign-in, afterwards keeps the
-   * email/verification mirror in step with Firebase. Profile fields from the
+   * email/verification mirror in step with Supabase Auth. Profile fields from the
    * client are only used to fill blanks, never to change identity.
+   *
+   * A profile that predates Supabase Auth (created under Firebase) is linked to
+   * the Supabase user with the same email, but only once Supabase has confirmed
+   * that the address belongs to them.
    */
-  async sync(identity: FirebaseIdentity, input: SyncProfileInput, ip?: string): Promise<SessionUser> {
-    if (!identity.email) {
+  async sync(identity: AuthIdentity, accessToken: string, input: SyncProfileInput, ip?: string): Promise<SessionUser> {
+    const account = await this.verifier.account(accessToken);
+    const email = account.email ?? identity.email;
+    if (!email) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, 'Your sign-in method did not share an email address', HttpStatus.BAD_REQUEST);
     }
-    const emailVerifiedAt = identity.emailVerified ? new Date() : null;
-    const existing = await this.prisma.user.findUnique({ where: { firebaseUid: identity.uid } });
+    const verifiedNow = account.emailVerified ? new Date() : null;
+    const fullName = input.fullName ?? identity.metadata.fullName ?? identity.name;
+    const phone = normalisePhone(input.phone ?? identity.metadata.phone);
+    const existing = await this.prisma.user.findUnique({ where: { authUserId: identity.uid } });
 
     if (existing) {
       if (existing.deletedAt) throw Errors.forbidden('This account has been disabled');
       await this.prisma.user.update({
         where: { id: existing.id },
         data: {
-          email: identity.email,
-          // Mirror Firebase: set once verified (Firebase never un-verifies an address).
-          emailVerifiedAt: existing.emailVerifiedAt ?? emailVerifiedAt,
-          phone: existing.phone ?? normalisePhone(input.phone),
+          email,
+          // Mirror Supabase Auth: set once confirmed (an address is never un-confirmed).
+          emailVerifiedAt: existing.emailVerifiedAt ?? verifiedNow,
+          phone: existing.phone ?? phone,
           lastLoginAt: new Date(),
           customerProfile: input.app === 'CUSTOMER' ? { upsert: { create: {}, update: {} } } : undefined,
         },
@@ -40,18 +49,40 @@ export class AuthService {
       return this.me(existing.id);
     }
 
-    // An email can only belong to one Firebase account, but guard against a
-    // stale row (e.g. a Firebase user deleted and re-created) hijacking data.
-    const clash = await this.prisma.user.findUnique({ where: { email: identity.email }, select: { id: true } });
-    if (clash) throw Errors.conflict('This email is linked to another account. Contact support.');
+    const sameEmail = await this.prisma.user.findUnique({ where: { email } });
+    if (sameEmail) {
+      // Linked to a different Supabase user: never let a second account take it over.
+      if (sameEmail.authUserId) throw Errors.conflict('This email is linked to another account. Contact support.');
+      if (sameEmail.deletedAt) throw Errors.forbidden('This account has been disabled');
+      if (!account.emailVerified) throw Errors.emailNotVerified();
+      await this.prisma.user.update({
+        where: { id: sameEmail.id },
+        data: {
+          authUserId: identity.uid,
+          emailVerifiedAt: sameEmail.emailVerifiedAt ?? verifiedNow,
+          phone: sameEmail.phone ?? phone,
+          lastLoginAt: new Date(),
+          customerProfile: input.app === 'CUSTOMER' ? { upsert: { create: {}, update: {} } } : undefined,
+        },
+      });
+      await this.audit.record({
+        action: 'auth.account_linked',
+        entityType: 'User',
+        entityId: sameEmail.id,
+        actorUserId: sameEmail.id,
+        ip,
+        meta: { provider: identity.provider, app: input.app, legacyFirebase: Boolean(sameEmail.firebaseUid) },
+      });
+      return this.me(sameEmail.id);
+    }
 
     const user = await this.prisma.user.create({
       data: {
-        firebaseUid: identity.uid,
-        email: identity.email,
-        emailVerifiedAt,
-        fullName: input.fullName ?? identity.name ?? identity.email.split('@')[0]!,
-        phone: normalisePhone(input.phone),
+        authUserId: identity.uid,
+        email,
+        emailVerifiedAt: verifiedNow,
+        fullName: fullName ?? email.split('@')[0]!,
+        phone,
         lastLoginAt: new Date(),
         customerProfile: input.app === 'CUSTOMER' ? { create: {} } : undefined,
       },
@@ -62,7 +93,7 @@ export class AuthService {
       entityId: user.id,
       actorUserId: user.id,
       ip,
-      meta: { provider: identity.signInProvider, app: input.app },
+      meta: { provider: identity.provider, app: input.app },
     });
     return this.me(user.id);
   }

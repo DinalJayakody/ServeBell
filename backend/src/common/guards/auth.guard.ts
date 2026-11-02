@@ -6,14 +6,14 @@ import { ALLOW_UNSYNCED, OPTIONAL_AUTH } from '../decorators/auth.decorators.js'
 import { AppError } from '../errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AppRequest } from '../request-context.js';
-import { IdTokenVerifier } from '../../auth/firebase-token.verifier.js';
+import { IdTokenVerifier } from '../../auth/token-verifier.js';
 
 /**
- * Global guard. Verifies the Firebase ID token, then resolves the local user.
+ * Global guard. Verifies the Supabase access token, then resolves the local user.
  * Routes need a synced profile unless marked @AllowUnsynced (i.e. /auth/sync).
  */
 @Injectable()
-export class FirebaseAuthGuard implements CanActivate {
+export class AuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly verifier: IdTokenVerifier,
@@ -36,18 +36,19 @@ export class FirebaseAuthGuard implements CanActivate {
     }
 
     try {
-      req.firebase = await this.verifier.verify(token);
+      req.identity = await this.verifier.verify(token);
+      req.accessToken = token;
     } catch (e) {
       if (isPublic) return true;
       throw e;
     }
 
     const user = await this.prisma.user.findUnique({
-      where: { firebaseUid: req.firebase.uid },
-      select: { id: true, platformRole: true, deletedAt: true },
+      where: { authUserId: req.identity.uid },
+      select: { id: true, platformRole: true, deletedAt: true, emailVerifiedAt: true },
     });
     if (user?.deletedAt) throw new AppError(ErrorCode.FORBIDDEN, 'This account has been disabled', HttpStatus.FORBIDDEN);
-    if (user) req.user = { id: user.id, platformRole: user.platformRole };
+    if (user) req.user = { id: user.id, platformRole: user.platformRole, emailVerified: user.emailVerifiedAt !== null };
     else if (!allowUnsynced && !isPublic && !optional) {
       throw new AppError(ErrorCode.PROFILE_REQUIRED, 'Complete your profile to continue', HttpStatus.FORBIDDEN);
     }

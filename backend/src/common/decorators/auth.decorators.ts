@@ -10,11 +10,11 @@ export const OPTIONAL_AUTH = 'optionalAuth';
 export const OptionalAuth = () => SetMetadata(OPTIONAL_AUTH, true);
 
 export const ALLOW_UNSYNCED = 'allowUnsynced';
-/** Route accepts a verified Firebase user that has no local profile yet. */
+/** Route accepts a verified Supabase Auth user that has no local profile yet. */
 export const AllowUnsynced = () => SetMetadata(ALLOW_UNSYNCED, true);
 
-export const FirebaseIdentityParam = createParamDecorator((_: unknown, ctx: ExecutionContext) => {
-  return ctx.switchToHttp().getRequest<AppRequest>().firebase;
+export const AuthIdentityParam = createParamDecorator((_: unknown, ctx: ExecutionContext) => {
+  return ctx.switchToHttp().getRequest<AppRequest>().identity;
 });
 
 export const PERMISSION = 'restaurantPermission';

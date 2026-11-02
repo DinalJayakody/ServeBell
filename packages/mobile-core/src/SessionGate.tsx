@@ -1,20 +1,20 @@
 import { View } from 'react-native';
 import { CloudOff } from 'lucide-react-native';
 import { Button, ErrorState, LoadingState, Screen, Text, useTheme } from '@servebell/design-system';
-import { isFirebaseConfigured } from './config';
+import { isAuthConfigured } from './config';
 import { session, useSession } from './session';
 
 /** Renders blocking states for configuration problems and failed profile sync. */
 export function SessionStatusView() {
   const t = useTheme();
   const { status, error } = useSession();
-  if (!isFirebaseConfigured()) {
+  if (!isAuthConfigured()) {
     return (
       <Screen>
         <View style={{ flex: 1, justifyContent: 'center', gap: 12 }}>
           <CloudOff size={36} color={t.colors.warning} />
-          <Text variant="title2">Firebase isn’t configured</Text>
-          <Text variant="body" color="textSecondary">Copy .env.example to .env in this app and fill in the EXPO_PUBLIC_FIREBASE_* values from your Firebase project, then restart Expo.</Text>
+          <Text variant="title2">Sign-in isn’t configured</Text>
+          <Text variant="body" color="textSecondary">Copy .env.example to .env in this app and set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY, then restart Expo.</Text>
         </View>
       </Screen>
     );

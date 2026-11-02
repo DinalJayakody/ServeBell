@@ -4,7 +4,7 @@ import { io, type Socket } from 'socket.io-client';
 import { queryKeys } from '@servebell/api-client';
 import { RealtimeCommand, RealtimeEvent, type RealtimeEnvelope, type ServiceMessageView, type ServiceRequestView } from '@servebell/shared';
 import { config } from './config';
-import { firebaseAuth } from './firebase';
+import { supabase } from './supabase';
 import { queryClient } from './providers';
 import { useSession } from './session';
 
@@ -22,11 +22,11 @@ function connect() {
   if (socket) return socket;
   socket = io(config.apiUrl, {
     transports: ['websocket'],
-    // Called on every (re)connect, so an expired ID token is refreshed automatically.
+    // Called on every (re)connect, so an expired access token is refreshed automatically.
     auth: (cb) => {
-      const user = firebaseAuth().currentUser;
-      if (!user) return cb({});
-      user.getIdToken().then((token) => cb({ token }), () => cb({}));
+      supabase()
+        .auth.getSession()
+        .then(({ data }) => cb(data.session ? { token: data.session.access_token } : {}), () => cb({}));
     },
     reconnectionDelayMax: 10_000,
   });

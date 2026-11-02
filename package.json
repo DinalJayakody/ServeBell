@@ -23,8 +23,8 @@
     "lint": "pnpm -r --if-present lint",
     "dev:ip": "node infrastructure/scripts/print-lan-url.mjs",
     "postinstall": "pnpm build:packages",
-    "dev:auth": "firebase emulators:start --only auth --project demo-servebell --import .firebase-emulator --export-on-exit .firebase-emulator",
-    "dev:stack": "concurrently -k -n pkgs,auth,api,web -c gray,yellow,blue,magenta \"pnpm dev:packages\" \"pnpm dev:auth\" \"pnpm dev:backend\" \"pnpm dev:web\"",
+    "dev:supabase": "supabase start",
+    "dev:stack": "supabase start && concurrently -k -n pkgs,api,web -c gray,blue,magenta \"pnpm dev:packages\" \"pnpm dev:backend\" \"pnpm dev:web\"",
     "ios:customer": "pnpm --filter @servebell/customer-app ios",
     "ios:restaurant": "pnpm --filter @servebell/restaurant-app ios",
     "dev:tables": "pnpm --filter @servebell/backend exec tsx scripts/print-tables.ts",
@@ -41,7 +41,6 @@
     }
   },
   "devDependencies": {
-    "concurrently": "^10.0.6",
-    "firebase-tools": "^15.34.2"
+    "concurrently": "^10.0.6"
   }
 }

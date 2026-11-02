@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import { FlaskConical } from 'lucide-react-native';
 import { Chip, Text, useTheme } from '@servebell/design-system';
-import { isUsingAuthEmulator } from './config';
-import { authErrorMessage } from './firebase';
+import { isUsingLocalAuth } from './config';
+import { authErrorMessage } from './supabase';
 import { session } from './session';
 
-/** Seeded demo accounts (see backend/prisma/seed.ts). They exist only in the local Auth emulator. */
+/** Seeded demo accounts (see backend/prisma/seed.ts). They exist only in the local Supabase stack. */
 export const DEMO_PASSWORD = 'ServeBell#2026';
 const ACCOUNTS = {
   customer: [{ label: 'Sarah (customer)', email: 'customer@servebell.dev' }],
@@ -19,11 +19,11 @@ const ACCOUNTS = {
   ],
 };
 
-/** One-tap demo sign-in. Rendered only in development builds using the Auth emulator. */
+/** One-tap demo sign-in. Rendered only in development builds using the local Supabase stack. */
 export function DevQuickLogin({ app }: { app: keyof typeof ACCOUNTS }) {
   const t = useTheme();
   const [error, setError] = useState<string | null>(null);
-  if (!__DEV__ || !isUsingAuthEmulator()) return null;
+  if (!__DEV__ || !isUsingLocalAuth()) return null;
   return (
     <View style={{ gap: 10, padding: 14, borderRadius: t.radii.md, borderWidth: 1, borderStyle: 'dashed', borderColor: t.colors.warning, marginTop: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -35,14 +35,14 @@ export function DevQuickLogin({ app }: { app: keyof typeof ACCOUNTS }) {
           <Chip key={a.email} label={a.label} onPress={() => session.signIn(a.email, DEMO_PASSWORD).catch((e) => setError(authErrorMessage(e)))} />
         ))}
       </View>
-      {error ? <Text variant="caption" color="danger">{error} Run `pnpm db:seed` with the emulator running.</Text> : null}
+      {error ? <Text variant="caption" color="danger">{error} Run `pnpm dev:supabase`, then `SEED_DEMO_ACCOUNTS=true pnpm db:seed`.</Text> : null}
     </View>
   );
 }
 
-/** Dev deep link helper: signs in a demo account by email (emulator only). */
+/** Dev deep link helper: signs in a demo account by email (local Supabase only). */
 export async function devSignIn(email: string) {
-  if (!__DEV__ || !isUsingAuthEmulator() || !email.endsWith('@servebell.dev')) return false;
+  if (!__DEV__ || !isUsingLocalAuth() || !email.endsWith('@servebell.dev')) return false;
   await session.signIn(email, DEMO_PASSWORD);
   return true;
 }

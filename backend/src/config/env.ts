@@ -12,11 +12,10 @@ const envSchema = z
     CORS_ORIGINS: csv,
     PUBLIC_WEB_URL: z.url(),
     DATABASE_URL: z.string().min(1),
-    FIREBASE_PROJECT_ID: z.string().min(1),
-    /** Base64 of the service-account JSON. Optional: enables revoked-token checks. */
-    FIREBASE_SERVICE_ACCOUNT_BASE64: z.string().default(''),
-    /** Set (e.g. 127.0.0.1:9099) to verify tokens from the Firebase Auth emulator. Dev/test only. */
-    FIREBASE_AUTH_EMULATOR_HOST: z.string().default(''),
+    /** Supabase project URL (https://<ref>.supabase.co, or http://127.0.0.1:54321 for the local stack). */
+    SUPABASE_URL: z.url(),
+    /** Server-only secret key (sb_secret_…). Never shipped to the apps. */
+    SUPABASE_SECRET_KEY: z.string().default(''),
     TOKEN_HASH_SECRET: z.string().min(32),
     R2_ACCOUNT_ID: z.string().default(''),
     R2_ACCESS_KEY_ID: z.string().default(''),
@@ -36,8 +35,11 @@ const envSchema = z
     if (env.TOKEN_HASH_SECRET.startsWith('change-me')) {
       ctx.addIssue({ code: 'custom', path: ['TOKEN_HASH_SECRET'], message: 'placeholder secret in production' });
     }
-    if (env.FIREBASE_AUTH_EMULATOR_HOST) {
-      ctx.addIssue({ code: 'custom', path: ['FIREBASE_AUTH_EMULATOR_HOST'], message: 'emulator tokens are unsigned; never enable in production' });
+    if (!env.SUPABASE_URL.startsWith('https://')) {
+      ctx.addIssue({ code: 'custom', path: ['SUPABASE_URL'], message: 'must be the https project URL in production' });
+    }
+    if (!env.SUPABASE_SECRET_KEY.startsWith('sb_secret_')) {
+      ctx.addIssue({ code: 'custom', path: ['SUPABASE_SECRET_KEY'], message: 'secret key (sb_secret_…) is required in production' });
     }
   });
 

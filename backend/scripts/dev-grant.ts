@@ -1,6 +1,6 @@
 /**
  * DEVELOPMENT ONLY: give an existing account a role at a seeded restaurant, so real
- * Firebase accounts can test owner/admin/waiter flows locally.
+ * accounts can test owner/admin/waiter flows locally.
  *   pnpm dev:grant you@example.com OWNER            (default restaurant: ocean-breeze-colombo)
  *   pnpm dev:grant waiter@example.com WAITER some-restaurant-slug
  * Refuses to run when NODE_ENV=production. In production use invitations / owner approval.

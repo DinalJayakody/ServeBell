@@ -1,8 +1,8 @@
 /**
- * End-to-end smoke test against the RUNNING dev stack (API + Auth emulator + seed):
+ * End-to-end smoke test against the RUNNING dev stack (API + local Supabase + seed):
  * customer scans T1 → requests a waiter → waiter is alerted in realtime → accepts →
  * they chat → waiter completes. Exercises the exact endpoints/events the apps use.
- * Usage: pnpm dev:smoke   (requires `pnpm dev:auth`, `pnpm dev:backend`, `pnpm db:seed`)
+ * Usage: pnpm dev:smoke   (requires `pnpm dev:supabase`, `pnpm dev:backend`, `pnpm db:seed`)
  */
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
@@ -11,21 +11,12 @@ import { io, type Socket } from 'socket.io-client';
 import { createApiClient } from '@servebell/api-client';
 import { RealtimeCommand, RealtimeEvent, type RealtimeEnvelope, type ServiceRequestView } from '@servebell/shared';
 import { PrismaClient } from '../src/generated/prisma/client.js';
+import { passwordSignIn } from './supabase-auth.js';
 
 const API = process.env.SMOKE_API_URL ?? 'http://127.0.0.1:4000';
-const EMULATOR = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
 const PASSWORD = 'ServeBell#2026';
 
-async function signIn(email: string) {
-  const res = await fetch(`http://${EMULATOR}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo-api-key`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password: PASSWORD, returnSecureToken: true }),
-  });
-  const body = (await res.json()) as { idToken?: string; error?: { message: string } };
-  if (!body.idToken) throw new Error(`Sign-in failed for ${email}: ${body.error?.message}. Is the emulator running and the DB seeded?`);
-  return body.idToken;
-}
+const signIn = (email: string) => passwordSignIn(email, PASSWORD);
 
 const client = (token: string) => createApiClient({ baseUrl: API, getIdToken: async () => token });
 const step = (n: number, msg: string) => console.log(`  ${String(n).padStart(2)}. ${msg}`);

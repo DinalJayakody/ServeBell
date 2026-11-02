@@ -32,9 +32,9 @@ export const ErrorCode = {
   VALIDATION_FAILED: 'VALIDATION_FAILED',
   UNAUTHENTICATED: 'UNAUTHENTICATED',
   TOKEN_EXPIRED: 'TOKEN_EXPIRED',
-  /** Valid Firebase token, but POST /auth/sync hasn't created the local profile yet. */
+  /** Valid access token, but POST /auth/sync hasn't created the local profile yet. */
   PROFILE_REQUIRED: 'PROFILE_REQUIRED',
-  /** Action requires a verified email address (Firebase email_verified claim). */
+  /** Action requires a confirmed email address (Supabase Auth email_confirmed_at). */
   EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',

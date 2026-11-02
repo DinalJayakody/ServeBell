@@ -17,25 +17,20 @@ function resolveApiUrl(): string {
   throw new Error('EXPO_PUBLIC_API_URL is not set for this build');
 }
 
-const realFirebase = Boolean(process.env.EXPO_PUBLIC_FIREBASE_API_KEY);
+/** The local Supabase stack's fixed development key (`supabase status`); not a secret. */
+const LOCAL_PUBLISHABLE_KEY = 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
 
 /**
- * Without Firebase keys, development builds use the local Auth emulator with the
- * offline "demo-servebell" project (`pnpm dev:auth`). Production builds must set keys.
+ * Supabase Auth. Builds set EXPO_PUBLIC_SUPABASE_URL + EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY.
+ * Development without them uses the local stack (`pnpm dev:supabase`) on the dev machine.
  */
-const useEmulator = __DEV__ && (!realFirebase || Boolean(process.env.EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST));
+const explicitSupabase = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
+const supabaseUrl = explicitSupabase || (devHost ? `http://${devHost}:54321` : '');
+const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || (!explicitSupabase && devHost ? LOCAL_PUBLISHABLE_KEY : '');
 
 export const config = {
   apiUrl: resolveApiUrl(),
-  firebase: realFirebase
-    ? {
-        apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '',
-        authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
-        projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? '',
-        appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '',
-      }
-    : { apiKey: 'demo-api-key', authDomain: 'demo-servebell.firebaseapp.com', projectId: 'demo-servebell', appId: 'demo-app' },
-  firebaseAuthEmulatorHost: useEmulator ? (process.env.EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || (devHost ? `${devHost}:9099` : '')) : '',
+  supabase: { url: supabaseUrl, publishableKey: supabaseKey },
   google: {
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '',
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? '',
@@ -43,8 +38,9 @@ export const config = {
   },
 };
 
-export const isFirebaseConfigured = () => realFirebase || Boolean(config.firebaseAuthEmulatorHost);
-export const isUsingAuthEmulator = () => Boolean(config.firebaseAuthEmulatorHost);
+export const isAuthConfigured = () => Boolean(config.supabase.url && config.supabase.publishableKey);
+/** True when signing in against the local Supabase stack (demo accounts available). */
+export const isUsingLocalAuth = () => Boolean(devHost) && !explicitSupabase;
 
 /** API-relative file paths (local dev storage) become absolute; R2 URLs pass through. */
 export function mediaUrl(url: string | null | undefined) {

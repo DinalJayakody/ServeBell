@@ -4,19 +4,28 @@ import { ThrottlerStorage } from '@nestjs/throttler';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/bootstrap.js';
-import { IdTokenVerifier, type FirebaseIdentity } from '../src/auth/firebase-token.verifier.js';
+import { randomUUID } from 'node:crypto';
+import { IdTokenVerifier, type AuthAccount, type AuthIdentity } from '../src/auth/token-verifier.js';
 import { PrismaService } from '../src/common/prisma/prisma.service.js';
 import { AppError } from '../src/common/errors.js';
 
 /**
- * Test-only verifier: the bearer token is "test:<uid>:<email>". Lets tests act
- * as any Firebase user without network calls; never registered outside tests.
+ * Test-only verifier: the bearer token is "test:<uid>:<email>[:unverified]". Lets
+ * tests act as any Supabase Auth user without network calls; never registered outside tests.
  */
 class FakeVerifier extends IdTokenVerifier {
-  async verify(token: string): Promise<FirebaseIdentity> {
+  private parse(token: string) {
     const [prefix, uid, email, flag] = token.split(':');
     if (prefix !== 'test' || !uid || !email) throw new AppError('UNAUTHENTICATED', 'Invalid authentication token', 401);
-    return { uid, email, emailVerified: flag !== 'unverified', name: null, signInProvider: 'password' };
+    return { uid, email, verified: flag !== 'unverified' };
+  }
+  async verify(token: string): Promise<AuthIdentity> {
+    const { uid, email } = this.parse(token);
+    return { uid, email, name: null, provider: 'email', metadata: {} };
+  }
+  async account(token: string): Promise<AuthAccount> {
+    const { email, verified } = this.parse(token);
+    return { email, emailVerified: verified };
   }
 }
 
@@ -40,9 +49,9 @@ export async function createTestApp() {
 
 let seq = 0;
 export function makeUser(label: string) {
-  const id = `${label}-${Date.now()}-${seq++}`;
-  const email = `${id}@test.servebell.dev`;
-  return { uid: id, email, token: `test:${id}:${email}` };
+  const uid = randomUUID();
+  const email = `${label}-${Date.now()}-${seq++}@test.servebell.dev`;
+  return { uid, email, token: `test:${uid}:${email}` };
 }
 
 export function api(app: INestApplication, token?: string) {
@@ -57,7 +66,7 @@ export function api(app: INestApplication, token?: string) {
   };
 }
 
-/** Creates a Firebase-backed user with a synced local profile. */
+/** Creates a Supabase Auth user with a synced local profile. */
 export async function signUp(app: INestApplication, label: string, appName: 'CUSTOMER' | 'RESTAURANT' = 'CUSTOMER') {
   const u = makeUser(label);
   const res = await api(app, u.token).post('/auth/sync', { app: appName, fullName: `${label} user` });

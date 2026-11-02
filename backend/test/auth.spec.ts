@@ -2,7 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { api, createTestApp, makeUser } from './harness.js';
 import type { PrismaService } from '../src/common/prisma/prisma.service.js';
 
-describe('Authentication (Firebase ID token → local profile)', () => {
+describe('Authentication (Supabase access token → local profile)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   beforeAll(async () => ({ app, prisma } = await createTestApp()));
@@ -36,7 +36,7 @@ describe('Authentication (Firebase ID token → local profile)', () => {
     expect(second.status).toBe(200);
     expect(second.body.id).toBe(first.body.id);
     expect(second.body.fullName).toBe('Sarah Johnson');
-    expect(await prisma.user.count({ where: { firebaseUid: u.uid } })).toBe(1);
+    expect(await prisma.user.count({ where: { authUserId: u.uid } })).toBe(1);
     expect(await prisma.customerProfile.count({ where: { userId: first.body.id } })).toBe(1);
 
     const me = await api(app, u.token).get('/auth/me');
@@ -58,6 +58,30 @@ describe('Authentication (Firebase ID token → local profile)', () => {
     await prisma.user.update({ where: { id: created.body.id }, data: { deletedAt: new Date() } });
     const res = await api(app, u.token).get('/auth/me');
     expect(res.status).toBe(403);
+  });
+
+  it('links a profile created before Supabase Auth once the email is confirmed', async () => {
+    const legacy = await prisma.user.create({
+      data: { firebaseUid: `fb-${Date.now()}`, email: `legacy-${Date.now()}@test.servebell.dev`, fullName: 'Legacy Owner', platformRole: 'PLATFORM_ADMIN', emailVerifiedAt: new Date() },
+    });
+    const uid = crypto.randomUUID();
+    const token = `test:${uid}:${legacy.email}`;
+
+    // Unconfirmed address: no takeover of the existing profile.
+    const unconfirmed = await api(app, `${token}:unverified`).post('/auth/sync', { app: 'RESTAURANT' });
+    expect(unconfirmed.status).toBe(403);
+    expect(unconfirmed.body.code).toBe('EMAIL_NOT_VERIFIED');
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: legacy.id } })).authUserId).toBeNull();
+
+    const linked = await api(app, token).post('/auth/sync', { app: 'RESTAURANT', fullName: 'Ignored' });
+    expect(linked.status).toBe(200);
+    expect(linked.body).toMatchObject({ id: legacy.id, fullName: 'Legacy Owner', platformRole: 'PLATFORM_ADMIN' });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: legacy.id } })).authUserId).toBe(uid);
+    expect(await prisma.auditLog.count({ where: { entityId: legacy.id, action: 'auth.account_linked' } })).toBe(1);
+
+    // A second Supabase user with the same email can never claim it.
+    const other = await api(app, `test:${crypto.randomUUID()}:${legacy.email}`).post('/auth/sync', { app: 'RESTAURANT' });
+    expect(other.status).toBe(409);
   });
 
   it('updates the profile', async () => {

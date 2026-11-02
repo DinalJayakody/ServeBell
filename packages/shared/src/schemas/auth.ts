@@ -3,9 +3,9 @@ import { ClientApp, RestaurantRole, PlatformRole, DevicePlatform } from '../enum
 import { phoneSchema } from './common.js';
 
 /**
- * Authentication is handled by Firebase Auth on the client (email/password,
- * Google, Apple, password reset, token refresh). The API receives a Firebase ID
- * token as `Authorization: Bearer <token>` and only manages profile + roles.
+ * Authentication is handled by Supabase Auth on the client (email/password,
+ * email confirmation, password reset, token refresh). The API receives the Supabase
+ * access token as `Authorization: Bearer <token>` and only manages profile + roles.
  */
 
 // Normalise first: Zod 4 runs format checks before chained transforms.
@@ -26,6 +26,11 @@ export const signUpFormSchema = z
   .refine((v) => v.password === v.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' });
 export type SignUpForm = z.infer<typeof signUpFormSchema>;
 
+export const newPasswordFormSchema = z
+  .object({ password: passwordSchema, confirmPassword: z.string() })
+  .refine((v) => v.password === v.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' });
+export type NewPasswordForm = z.infer<typeof newPasswordFormSchema>;
+
 export const signInFormSchema = z.object({ email, password: z.string().min(1, 'Enter your password').max(128) });
 export type SignInForm = z.infer<typeof signInFormSchema>;
 
@@ -33,7 +38,7 @@ export const forgotPasswordFormSchema = z.object({ email });
 
 // ── API contracts ──
 
-/** Called after every Firebase sign-in/sign-up; creates or updates the local profile. */
+/** Called after every Supabase sign-in/sign-up; creates or updates the local profile. */
 export const syncProfileSchema = z.object({
   fullName: fullName.optional(),
   phone: phoneSchema.optional(),
@@ -48,7 +53,7 @@ export const updateProfileSchema = z.object({
 });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
-/** Signed-in Firebase user joins a restaurant with an invitation code. */
+/** Signed-in user joins a restaurant with an invitation code. */
 export const redeemInvitationSchema = z.object({
   invitationCode: z.string().trim().min(6).max(64),
   phone: phoneSchema.optional(),

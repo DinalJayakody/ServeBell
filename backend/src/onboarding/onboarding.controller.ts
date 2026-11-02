@@ -4,8 +4,7 @@ import { ownerOnboardingSchema, reviewOnboardingSchema, type OwnerOnboardingInpu
 import { z } from 'zod';
 import { OnboardingService } from './onboarding.service.js';
 import { ZodPipe } from '../common/pipes/zod-validation.pipe.js';
-import { CurrentUser, FirebaseIdentityParam, RequirePlatformAdmin } from '../common/decorators/auth.decorators.js';
-import type { FirebaseIdentity } from '../auth/firebase-token.verifier.js';
+import { CurrentUser, RequirePlatformAdmin } from '../common/decorators/auth.decorators.js';
 import { Errors } from '../common/errors.js';
 import type { AuthUser } from '../common/request-context.js';
 
@@ -19,8 +18,8 @@ export class OnboardingController {
 
   @Post('owner-applications')
   @ApiOperation({ summary: 'Apply to register a restaurant as its owner (authenticated)' })
-  apply(@CurrentUser() user: AuthUser, @FirebaseIdentityParam() fb: FirebaseIdentity, @Body(new ZodPipe(ownerOnboardingSchema)) body: OwnerOnboardingInput) {
-    if (!fb.emailVerified) throw Errors.emailNotVerified();
+  apply(@CurrentUser() user: AuthUser, @Body(new ZodPipe(ownerOnboardingSchema)) body: OwnerOnboardingInput) {
+    if (!user.emailVerified) throw Errors.emailNotVerified();
     return this.onboarding.apply(user.id, body);
   }
 

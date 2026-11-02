@@ -19,7 +19,7 @@ export function configureApp(app: INestApplication) {
   if (!config.isProd) {
     const doc = new DocumentBuilder()
       .setTitle('ServeBell API')
-      .setDescription('Authenticate with a Firebase ID token: `Authorization: Bearer <idToken>`.')
+      .setDescription('Authenticate with a Supabase access token: `Authorization: Bearer <accessToken>`.')
       .setVersion('1.0')
       .addBearerAuth()
       .build();
