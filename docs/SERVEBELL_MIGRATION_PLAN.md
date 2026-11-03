@@ -160,3 +160,17 @@ Next stages:
     pre-create the Supabase auth user (confirmed) and send a reset email; profile links automatically on first sign-in.
 12–13. Tests + staging; 14–15. `eas.json`, iOS build, TestFlight (user does Apple 2FA); 16 device test; 17 docs.
 Also: qr-web (Next.js) → Vercel project `servebell-web` (PUBLIC_WEB_URL/CORS already point to https://servebell-web.vercel.app).
+
+### Standing requirements from the user (2026-11-03)
+
+* **No more Expo Go testing.** Everything is validated with real EAS builds; the goal is an iOS build on **TestFlight**.
+* Before submitting, the builds must meet Apple's requirements, at least:
+  - in-app **account deletion** (App Review 5.1.1(v)) — backend endpoint + UI in both apps;
+  - `ITSAppUsesNonExemptEncryption: false` in `ios.infoPlist` (HTTPS only) to skip the export-compliance prompt;
+  - complete purpose strings (camera, photos, location, notifications) and a **privacy manifest** (`ios.privacyManifests`);
+  - Sign in with Apple only if a third-party login is offered (4.8); today only email/password → remove `usesAppleSignIn`
+    unless Apple sign-in is implemented;
+  - privacy policy URL + support URL for App Store Connect, app icons/splash at required sizes, build numbers via EAS
+    (`autoIncrement`), production `EXPO_PUBLIC_*` values via EAS environment variables (never secrets in the app).
+* Order of work: finish deployment (Stages 7–13: push, R2, apps → Vercel/Supabase, data migration, qr-web, tests) →
+  Apple-readiness pass → `eas build -p ios --profile production` → `eas submit` (user completes Apple 2FA / App Store Connect steps).
