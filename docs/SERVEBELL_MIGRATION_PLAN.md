@@ -1,6 +1,6 @@
 # ServeBell — Migration Plan (Oracle + Firebase → Supabase + Vercel + R2 + EAS)
 
-Status: **Stages 1–5 complete** (audit, database, Supabase project, Supabase Auth, API live on Vercel at https://servebell-api.vercel.app). The apps' builds still point at Oracle + Firebase until the cut-over.
+Status: **Stages 1–6 complete** (audit, database, Supabase project, Supabase Auth, API on Vercel https://servebell-api.vercel.app, Supabase Realtime). See "Handoff" at the end for where to resume.
 Companion documents: `SERVEBELL_CURRENT_ARCHITECTURE.md`, `SERVEBELL_FEATURE_INVENTORY.md`.
 
 ## 1. Facts that change the brief
@@ -95,8 +95,8 @@ Keep the existing outbox + `expo-server-sdk`. Add `eas.json`, EAS project ids, A
 | 2 | Database architecture | **Done** — Map Prisma schema to Supabase (extensions `btree_gist`, `pg_cron`, `pg_net`), `supabase/migrations/` generated from Prisma + SQL for RLS/realtime/cron, `supabase/seed.sql`, `docs/SUPABASE_DATABASE.md` | — |
 | 3 | Supabase project | **Done (dashboard Auth settings pending, see SUPABASE_DATABASE.md)** — Create project (created in **ap-northeast-1 Tokyo**), enable extensions, apply migrations, auth settings (email confirm, redirect URLs, SMTP) | Create the project in the dashboard (free) and give me the project ref, publishable key, secret key, DB password via local `.env` files (never in chat) — or run `supabase login` yourself so I can link |
 | 4 | Auth migration | **Done** (see SUPABASE_AUTH.md; only dinaljayakody25@gmail.com migrates — linked automatically on first confirmed sign-in) — Server JWT verifier, mobile session rewrite, deep links, 2-user migration | Approve D2; you confirm the reset emails arrive |
-| 5 | Backend → Vercel | **Done** (docs/deployment/vercel.md; Vault secrets for pg_cron pending — set by you) — Serverless entry (`api/index.ts` wrapping Nest), `vercel.json`, pooler URLs, `/api/health` | D1; Vercel account + GitHub repo (D3) |
-| 6 | Realtime | Triggers, `realtime.send`, RLS on `realtime.messages`, client channel layer | — |
+| 5 | Backend → Vercel | **Done** (docs/deployment/vercel.md; Vault secrets set, pg_cron → Vercel verified 200) — Serverless entry (`api/index.ts` wrapping Nest), `vercel.json`, pooler URLs, `/api/health` | D1; Vercel account + GitHub repo (D3) |
+| 6 | Realtime | **Done** — Socket.IO removed; backend publishes private Broadcast via REST (`RealtimePublisher`), apps subscribe to `user:{id}` / `restaurant:{id}` only in foreground and refetch on subscribe. Live staff chat deferred (user: chat not needed now). — Triggers, `realtime.send`, RLS on `realtime.messages`, client channel layer | — |
 | 7 | Push | Outbox flush endpoint, pg_net trigger, EAS project ids | Expo account login (done: `dinal25`) |
 | 8 | R2 | Bucket, CORS, public URL, keys | Cloudflare account; create R2 bucket + API token (free tier: 10 GB) |
 | 9–10 | App integration | mobile-core session/realtime/upload swap; env config | — |
@@ -140,3 +140,23 @@ Oracle keeps running with its own database and nightly backups; Firebase Auth st
 * **D3** Baseline commit + private GitHub repo for Vercel deployments.
 * **D4** Demo accounts: recreate on Supabase with the scenario script (recommended) vs migrate.
 * **D5** Google / Apple sign-in in this round or later.
+
+## Handoff (2026-11-03) — resume here
+
+Done and verified: Stages 1–6 (details in SUPABASE_DATABASE.md, SUPABASE_AUTH.md, deployment/vercel.md).
+
+Local dev now: `pnpm dev:supabase` (local Supabase incl. Auth/Realtime/Mailpit), backend `.env` DATABASE_URL = local Supabase DB
+(127.0.0.1:54322) so Realtime authorisation sees profiles; `SEED_DEMO_ACCOUNTS=true pnpm db:seed`; `pnpm dev:backend`;
+`pnpm dev:smoke` = end-to-end incl. Realtime. Backend tests still use plain Postgres (`pnpm db:up`).
+
+Secrets (git-ignored, never in chat): `backend/.env.supabase` (Supabase keys/DB URLs), `backend/.env.vercel` (VERCEL_TOKEN,
+CRON_SECRET, TOKEN_HASH_SECRET). Vercel project `servebell-api` linked via `/.vercel/`. Deploy: see deployment/vercel.md.
+
+Next stages:
+7. Push: EAS projectIds (`eas init` for both apps, needs Expo login `dinal25`), verify push via outbox → pg_net flush.
+8. R2: user creates Cloudflare R2 bucket + API token → R2_* env on Vercel; client-side resize to stay under 4.5 MB.
+9–10. Apps: EXPO_PUBLIC_API_URL=https://servebell-api.vercel.app, EXPO_PUBLIC_SUPABASE_URL/PUBLISHABLE_KEY (cloud) via EAS env.
+11. Data: copy Oracle data into Supabase (only dinaljayakody25@gmail.com real user; dinal25@gmail.com is NOT migrated);
+    pre-create the Supabase auth user (confirmed) and send a reset email; profile links automatically on first sign-in.
+12–13. Tests + staging; 14–15. `eas.json`, iOS build, TestFlight (user does Apple 2FA); 16 device test; 17 docs.
+Also: qr-web (Next.js) → Vercel project `servebell-web` (PUBLIC_WEB_URL/CORS already point to https://servebell-web.vercel.app).

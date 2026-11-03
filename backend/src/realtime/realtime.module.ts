@@ -1,7 +1,7 @@
 import { Global, Module } from '@nestjs/common';
-import { RealtimeGateway } from './realtime.gateway.js';
 import { RealtimeService } from './realtime.service.js';
+import { RealtimePublisher, SupabaseBroadcastPublisher } from './realtime.publisher.js';
 
 @Global()
-@Module({ providers: [RealtimeGateway, RealtimeService], exports: [RealtimeService] })
+@Module({ providers: [RealtimeService, { provide: RealtimePublisher, useClass: SupabaseBroadcastPublisher }], exports: [RealtimeService] })
 export class RealtimeModule {}

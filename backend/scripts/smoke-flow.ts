@@ -1,5 +1,5 @@
 /**
- * End-to-end smoke test against the RUNNING dev stack (API + local Supabase + seed):
+ * End-to-end smoke test against the RUNNING dev stack (API + local Supabase incl. Realtime + seed):
  * customer scans T1 → requests a waiter → waiter is alerted in realtime → accepts →
  * they chat → waiter completes. Exercises the exact endpoints/events the apps use.
  * Usage: pnpm dev:smoke   (requires `pnpm dev:supabase`, `pnpm dev:backend`, `pnpm db:seed`)
@@ -7,9 +7,9 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { io, type Socket } from 'socket.io-client';
+import { createClient, type RealtimeChannel } from '@supabase/supabase-js';
 import { createApiClient } from '@servebell/api-client';
-import { RealtimeCommand, RealtimeEvent, type RealtimeEnvelope, type ServiceRequestView } from '@servebell/shared';
+import { RealtimeEvent, topics, type RealtimeEnvelope, type ServiceRequestView } from '@servebell/shared';
 import { PrismaClient } from '../src/generated/prisma/client.js';
 import { passwordSignIn } from './supabase-auth.js';
 
@@ -17,13 +17,27 @@ const API = process.env.SMOKE_API_URL ?? 'http://127.0.0.1:4000';
 const PASSWORD = 'ServeBell#2026';
 
 const signIn = (email: string) => passwordSignIn(email, PASSWORD);
+const SUPABASE_URL = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321';
+const PUBLISHABLE = process.env.SUPABASE_PUBLISHABLE_KEY ?? 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
+
+/** Joins a private topic exactly like the apps do (servebell.can_receive decides access). */
+async function join(token: string, topic: string) {
+  const sb = createClient(SUPABASE_URL, PUBLISHABLE, { auth: { persistSession: false } });
+  await sb.realtime.setAuth(token);
+  const channel = sb.channel(topic, { config: { private: true } });
+  await new Promise<void>((resolve, reject) =>
+    channel.subscribe((status, err) => (status === 'SUBSCRIBED' ? resolve() : status !== 'CLOSED' && reject(new Error(`${topic}: ${status} ${err?.message ?? ''}`)))),
+  );
+  return { sb, channel };
+}
 
 const client = (token: string) => createApiClient({ baseUrl: API, getIdToken: async () => token });
 const step = (n: number, msg: string) => console.log(`  ${String(n).padStart(2)}. ${msg}`);
-function nextEvent<T>(socket: Socket, event: string, match: (d: T) => boolean, ms = 5000) {
+function nextEvent<T>(channel: RealtimeChannel, event: string, match: (d: T) => boolean, ms = 5000) {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${event}`)), ms);
-    socket.on(event, (e: RealtimeEnvelope<T>) => {
+    channel.on('broadcast', { event }, ({ payload }) => {
+      const e = payload as RealtimeEnvelope<T>;
       if (match(e.data)) {
         clearTimeout(timer);
         resolve(e.data);
@@ -47,24 +61,22 @@ const restaurantId = staff.memberships[0]?.restaurantId;
 if (!restaurantId) throw new Error('waiter@servebell.dev has no restaurant membership. Re-run `pnpm db:seed`.');
 step(1, `Signed in customer + waiter (${staff.memberships[0]!.restaurantName}, ${staff.memberships[0]!.role})`);
 
-const waiterSocket = io(API, { auth: { token: waiterToken }, transports: ['websocket'] });
-const customerSocket = io(API, { auth: { token: customerToken }, transports: ['websocket'] });
-await Promise.all([waiterSocket, customerSocket].map((s) => new Promise<void>((r, j) => { s.on('connect', () => r()); s.on('connect_error', j); })));
-const joined = await waiterSocket.emitWithAck(RealtimeCommand.JOIN_RESTAURANT, { id: restaurantId });
-if (!joined.ok) throw new Error(`Waiter could not join staff room: ${joined.error}`);
-step(2, 'Both connected to realtime; waiter joined the staff room');
+const [waiterRt, customerRt] = await Promise.all([join(waiterToken, topics.restaurantStaff(restaurantId)), join(customerToken, topics.user(customer && (await customer.auth.me()).id))]);
+const denied = await join(customerToken, topics.restaurantStaff(restaurantId)).then(() => false, () => true);
+if (!denied) throw new Error('Customer was allowed into the staff topic');
+step(2, 'Waiter subscribed to the staff topic, customer to their own; customer refused the staff topic');
 
 const visit = await customer.visits.start(`http://localhost:3000/t/${qr.token}`);
 step(3, `Customer scanned QR → seated at ${visit.restaurant.name}, table ${visit.table.label}`);
 
 const waiterType = visit.services.find((s) => s.isPrimary)!;
-const alerted = nextEvent<ServiceRequestView>(waiterSocket, RealtimeEvent.SERVICE_CREATED, (d) => d.table.label === visit.table.label);
+const alerted = nextEvent<ServiceRequestView>(waiterRt.channel, RealtimeEvent.SERVICE_CREATED, (d) => d.table.label === visit.table.label);
 const t0 = Date.now();
 const created = await customer.services.create({ serviceTypeId: waiterType.id, quantity: 1, idempotencyKey: randomUUID(), note: 'Smoke test — please ignore' });
 const alert = await alerted;
 step(4, `Customer tapped "${waiterType.name}" → waiter alerted in ${Date.now() - t0} ms (request #${alert.number}${created.duplicate ? ', reused open request' : ''})`);
 
-const accepted = nextEvent<ServiceRequestView>(customerSocket, RealtimeEvent.SERVICE_ACCEPTED, (d) => d.id === created.id);
+const accepted = nextEvent<ServiceRequestView>(customerRt.channel, RealtimeEvent.SERVICE_ACCEPTED, (d) => d.id === created.id);
 await waiter.staffServices.accept(restaurantId, created.id);
 const seen = await accepted;
 step(5, `Waiter accepted → customer sees "${seen.acceptedBy?.fullName}" in realtime`);
@@ -83,6 +95,6 @@ step(7, `Completed → timeline ${detail.events.map((e) => e.type).join(' → ')
 const stats = await waiter.staffServices.stats(restaurantId);
 step(8, `Waiter stats today: ${stats.completedToday} completed, pending ${stats.pending}`);
 
-waiterSocket.close();
-customerSocket.close();
+await Promise.all([waiterRt.sb.removeAllChannels(), customerRt.sb.removeAllChannels()]);
 console.log('\n✔ Smoke flow passed\n');
+process.exit(0);

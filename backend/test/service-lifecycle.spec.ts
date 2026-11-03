@@ -1,7 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
-import { io, type Socket } from 'socket.io-client';
-import { RealtimeCommand, RealtimeEvent, type RealtimeEnvelope, type ServiceRequestView } from '@servebell/shared';
-import { api, createTestApp, signUp } from './harness.js';
+import { RealtimeEvent, topics } from '@servebell/shared';
+import { api, createTestApp, signUp, type RecordingPublisher } from './harness.js';
 import type { PrismaService } from '../src/common/prisma/prisma.service.js';
 import { EscalationJob } from '../src/services/escalation.job.js';
 
@@ -10,7 +9,7 @@ type User = Awaited<ReturnType<typeof signUp>>;
 describe('Visits and the service request lifecycle', () => {
   let app: INestApplication;
   let prisma: PrismaService;
-  let url: string;
+  let realtime: RecordingPublisher;
   const ctx = {} as {
     restaurantId: string; otherRestaurantId: string; qr: string; qr2: string; otherQr: string;
     waiterTypeId: string; waterTypeId: string; otherTypeId: string;
@@ -40,9 +39,7 @@ describe('Visits and the service request lifecycle', () => {
   }
 
   beforeAll(async () => {
-    ({ app, prisma } = await createTestApp());
-    await app.listen(0);
-    url = await app.getUrl();
+    ({ app, prisma, realtime } = await createTestApp());
     ctx.owner = await signUp(app, 'own', 'RESTAURANT');
     ctx.waiterA = await signUp(app, 'wa', 'RESTAURANT');
     ctx.waiterB = await signUp(app, 'wb', 'RESTAURANT');
@@ -121,19 +118,17 @@ describe('Visits and the service request lifecycle', () => {
   });
 
   it('lets exactly one of two simultaneous waiters accept, and pushes realtime updates', async () => {
-    const socket: Socket = io(url, { auth: { token: ctx.customer.token }, transports: ['websocket'] });
-    const received = new Promise<RealtimeEnvelope<ServiceRequestView>>((resolve) => socket.on(RealtimeEvent.SERVICE_ACCEPTED, resolve));
-    await new Promise<void>((resolve) => socket.on('connect', () => resolve()));
-
+    const sentBefore = realtime.sent.length;
     const [a, b] = await Promise.all([staff(ctx.waiterA, `/${requestId}/accept`), staff(ctx.waiterB, `/${requestId}/accept`)]);
     const statuses = [a.status, b.status].sort();
     expect(statuses).toEqual([201, 409]);
     const loser = a.status === 409 ? a : b;
     expect(loser.body.code).toBe('ALREADY_ACCEPTED');
 
-    const envelope = await received;
-    expect(envelope.data).toMatchObject({ id: requestId, status: 'ACCEPTED' });
-    socket.close();
+    // Exactly one acceptance is announced, to the restaurant's staff and to the customer.
+    const accepted = realtime.sent.slice(sentBefore).filter((m) => m.event === RealtimeEvent.SERVICE_ACCEPTED);
+    expect(accepted.map((m) => m.topic).sort()).toEqual([topics.restaurantStaff(ctx.restaurantId), topics.user(ctx.customer.id)].sort());
+    expect(accepted[0]!.payload).toMatchObject({ event: RealtimeEvent.SERVICE_ACCEPTED, restaurantId: ctx.restaurantId, data: { id: requestId, status: 'ACCEPTED' } });
 
     const row = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
     expect(row.acceptedAt).not.toBeNull();
@@ -229,18 +224,9 @@ describe('Visits and the service request lifecycle', () => {
     expect((await request(ctx.customer2, ctx.waiterTypeId, 'after-leave-01')).body.code).toBe('VISIT_REQUIRED');
   });
 
-  it('rejects socket connections without a valid token and room joins without membership', async () => {
-    const bad = io(url, { auth: { token: 'nope' }, transports: ['websocket'], reconnection: false });
-    const err = await new Promise<Error>((resolve) => bad.on('connect_error', resolve));
-    expect(err.message).toBe('UNAUTHENTICATED');
-    bad.close();
-
-    const s = io(url, { auth: { token: ctx.outsider.token }, transports: ['websocket'] });
-    await new Promise<void>((resolve) => s.on('connect', () => resolve()));
-    const denied = await s.emitWithAck(RealtimeCommand.JOIN_RESTAURANT, { id: ctx.restaurantId });
-    expect(denied).toEqual({ ok: false, error: 'FORBIDDEN' });
-    const allowed = await s.emitWithAck(RealtimeCommand.JOIN_RESTAURANT, { id: ctx.otherRestaurantId });
-    expect(allowed).toEqual({ ok: true });
-    s.close();
+  it('never sends one restaurant\'s events to another restaurant\'s staff topic', async () => {
+    const leaked = realtime.sent.filter((m) => m.topic === topics.restaurantStaff(ctx.otherRestaurantId) && m.payload.restaurantId === ctx.restaurantId);
+    expect(leaked).toEqual([]);
+    expect(realtime.sent.every((m) => /^(restaurant|service|user):[0-9a-f-]{36}$/.test(m.topic))).toBe(true);
   });
 });

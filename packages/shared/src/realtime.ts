@@ -1,6 +1,6 @@
 /**
- * Socket.IO event contract. Sockets only announce changes; clients refetch or
- * patch their cache from the payload. REST stays the source of truth.
+ * Realtime event contract (Supabase Realtime Broadcast). Events only announce
+ * changes; clients refetch or patch their cache from the payload. REST stays the source of truth.
  */
 export const RealtimeEvent = {
   SERVICE_CREATED: 'service.created',
@@ -19,17 +19,16 @@ export const RealtimeEvent = {
 } as const;
 export type RealtimeEvent = (typeof RealtimeEvent)[keyof typeof RealtimeEvent];
 
-/** Client -> server commands (acknowledged). */
-export const RealtimeCommand = {
-  JOIN_RESTAURANT: 'room.join.restaurant',
-  JOIN_SERVICE: 'room.join.service',
-  LEAVE_SERVICE: 'room.leave.service',
-} as const;
-
-export const rooms = {
-  restaurantStaff: (restaurantId: string) => `restaurant:${restaurantId}:staff`,
-  restaurantPublic: (restaurantId: string) => `restaurant:${restaurantId}:public`,
+/**
+ * Private Supabase Realtime Broadcast topics. Who may receive each one is decided
+ * in Postgres (supabase/migrations/…_realtime_authorization.sql, servebell.can_receive).
+ */
+export const topics = {
+  /** Active staff of a restaurant. */
+  restaurantStaff: (restaurantId: string) => `restaurant:${restaurantId}`,
+  /** The customer and the restaurant's active staff, while a chat is open. */
   service: (serviceRequestId: string) => `service:${serviceRequestId}`,
+  /** One person: their requests, orders, reservations and notifications. */
   user: (userId: string) => `user:${userId}`,
 };
 

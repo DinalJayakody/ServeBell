@@ -40,7 +40,6 @@
     "react-native-gesture-handler": "*",
     "react-native-safe-area-context": "*",
     "react-native-svg": "*",
-    "socket.io-client": "*",
     "three": "*",
     "zustand": "*"
   },

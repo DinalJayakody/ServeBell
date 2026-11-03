@@ -1,49 +1,47 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
-import { io, type Socket } from 'socket.io-client';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { queryKeys } from '@servebell/api-client';
-import { RealtimeCommand, RealtimeEvent, type RealtimeEnvelope, type ServiceMessageView, type ServiceRequestView } from '@servebell/shared';
-import { config } from './config';
-import { supabase } from './supabase';
+import { RealtimeEvent, topics, type RealtimeEnvelope, type ServiceMessageView, type ServiceRequestView } from '@servebell/shared';
 import { queryClient } from './providers';
 import { useSession } from './session';
+import { supabase } from './supabase';
 
 type Listener = (event: string, envelope: RealtimeEnvelope) => void;
 
-let socket: Socket | null = null;
 const listeners = new Set<Listener>();
-let staffRestaurantId: string | null = null;
+const channels = new Map<string, RealtimeChannel>();
 
-function joinRooms() {
-  if (socket?.connected && staffRestaurantId) socket.emit(RealtimeCommand.JOIN_RESTAURANT, { id: staffRestaurantId });
+/** Anything could have changed while not subscribed: REST is the source of truth. */
+function refetchLiveData() {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.services });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.activeVisit });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.orders });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.reservations });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
 }
 
-function connect() {
-  if (socket) return socket;
-  socket = io(config.apiUrl, {
-    transports: ['websocket'],
-    // Called on every (re)connect, so an expired access token is refreshed automatically.
-    auth: (cb) => {
-      supabase()
-        .auth.getSession()
-        .then(({ data }) => cb(data.session ? { token: data.session.access_token } : {}), () => cb({}));
-    },
-    reconnectionDelayMax: 10_000,
+/** Private Supabase Broadcast topic; Postgres (servebell.can_receive) decides who may join. */
+function subscribe(topic: string) {
+  if (channels.has(topic)) return;
+  const channel = supabase().channel(topic, { config: { private: true } });
+  channel.on('broadcast', { event: '*' }, ({ event, payload }) => {
+    const envelope = payload as RealtimeEnvelope;
+    apply(event, envelope);
+    listeners.forEach((l) => l(event, envelope));
   });
-  socket.on('connect', () => {
-    joinRooms();
-    // Anything could have changed while disconnected: REST is the source of truth.
-    void queryClient.invalidateQueries({ queryKey: queryKeys.services });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.activeVisit });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.orders });
+  channel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') refetchLiveData();
   });
-  for (const event of Object.values(RealtimeEvent)) {
-    socket.on(event, (envelope: RealtimeEnvelope) => {
-      apply(event, envelope);
-      listeners.forEach((l) => l(event, envelope));
-    });
+  channels.set(topic, channel);
+}
+
+function unsubscribeAll(keep: string[] = []) {
+  for (const [topic, channel] of channels) {
+    if (keep.includes(topic)) continue;
+    void supabase().removeChannel(channel);
+    channels.delete(topic);
   }
-  return socket;
 }
 
 /** Patches the cache from the payload where possible, then marks lists stale. */
@@ -85,36 +83,43 @@ function apply(event: string, envelope: RealtimeEnvelope) {
   if (event === RealtimeEvent.NOTIFICATION_CREATED) void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
 }
 
-function disconnect() {
-  socket?.removeAllListeners();
-  socket?.disconnect();
-  socket = null;
+function useAppActive() {
+  const [active, setActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => setActive(s === 'active'));
+    return () => sub.remove();
+  }, []);
+  return active;
 }
 
 /**
- * Mount once near the root. Connects while signed in; staff apps pass the
- * restaurant whose staff room to join (the server re-checks membership).
+ * Mount once near the root. Subscribes while signed in and in the foreground (push covers
+ * the background); staff apps pass the restaurant whose staff topic to receive.
  */
 export function useRealtime(options: { staffRestaurantId?: string | null } = {}) {
   const status = useSession((s) => s.status);
   const userId = useSession((s) => s.user?.id);
+  const active = useAppActive();
+  const staffRestaurantId = options.staffRestaurantId ?? null;
 
   useEffect(() => {
-    staffRestaurantId = options.staffRestaurantId ?? null;
-    joinRooms();
-  }, [options.staffRestaurantId]);
-
-  useEffect(() => {
-    if (status !== 'signedIn' || !userId) {
-      disconnect();
+    if (status !== 'signedIn' || !userId || !active) {
+      unsubscribeAll();
       return;
     }
-    connect();
-    const sub = AppState.addEventListener('change', (s) => {
-      if (s === 'active' && socket && !socket.connected) socket.connect();
-    });
-    return () => sub.remove();
-  }, [status, userId]);
+    const wanted = [topics.user(userId), ...(staffRestaurantId ? [topics.restaurantStaff(staffRestaurantId)] : [])];
+    unsubscribeAll(wanted);
+    let cancelled = false;
+    // Private channels authenticate with the current access token (refreshed by supabase-js afterwards).
+    void supabase()
+      .realtime.setAuth()
+      .then(() => {
+        if (!cancelled) wanted.forEach(subscribe);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status, userId, staffRestaurantId, active]);
 }
 
 /** Subscribe to raw realtime events (e.g. to show an in-app alert). */
@@ -127,4 +132,4 @@ export function useRealtimeEvent(handler: Listener) {
   }, [handler]);
 }
 
-export const realtimeStatus = () => (socket?.connected ? 'connected' : 'disconnected');
+export const realtimeStatus = () => ([...channels.values()].some((c) => c.state === 'joined') ? 'connected' : 'disconnected');

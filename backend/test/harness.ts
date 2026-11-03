@@ -7,6 +7,7 @@ import { configureApp } from '../src/bootstrap.js';
 import { randomUUID } from 'node:crypto';
 import { IdTokenVerifier, type AuthAccount, type AuthIdentity } from '../src/auth/token-verifier.js';
 import { PrismaService } from '../src/common/prisma/prisma.service.js';
+import { RealtimePublisher, type BroadcastMessage } from '../src/realtime/realtime.publisher.js';
 import { AppError } from '../src/common/errors.js';
 
 /**
@@ -29,6 +30,14 @@ class FakeVerifier extends IdTokenVerifier {
   }
 }
 
+/** Records realtime broadcasts instead of calling Supabase. */
+export class RecordingPublisher extends RealtimePublisher {
+  readonly sent: BroadcastMessage[] = [];
+  async publish(messages: BroadcastMessage[]) {
+    this.sent.push(...messages);
+  }
+}
+
 /** Rate limits are covered separately; disable them for functional tests. */
 const noThrottle = {
   increment: async () => ({ totalHits: 1, timeToExpire: 60, isBlocked: false, timeToBlockExpire: 0 }),
@@ -38,13 +47,15 @@ export async function createTestApp() {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(IdTokenVerifier)
     .useClass(FakeVerifier)
+    .overrideProvider(RealtimePublisher)
+    .useClass(RecordingPublisher)
     .overrideProvider(ThrottlerStorage)
     .useValue(noThrottle)
     .compile();
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app);
   await app.init();
-  return { app, prisma: app.get(PrismaService) };
+  return { app, prisma: app.get(PrismaService), realtime: app.get(RealtimePublisher) as RecordingPublisher };
 }
 
 let seq = 0;

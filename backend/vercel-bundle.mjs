@@ -29,6 +29,8 @@ await build({
     '@nestjs/microservices',
     '@nestjs/microservices/*',
     '@nestjs/platform-fastify',
+    '@nestjs/websockets',
+    '@nestjs/websockets/*',
     '@fastify/*',
     'class-transformer',
     'class-transformer/*',
